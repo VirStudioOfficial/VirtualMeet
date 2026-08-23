@@ -1,19 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef } from "react";
 
 export default function Room({
   params,
 }: {
   params: { id: string };
 }) {
-  const [mic, setMic] = useState(true);
-  const [camera, setCamera] = useState(true);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    async function startCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true,
+      });
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    }
+
+    startCamera();
+  }, []);
 
   return (
     <main className="min-h-screen bg-black text-white p-6 flex flex-col">
-      
-      <div className="flex justify-between items-center mb-6">
+
+      <div className="flex justify-between mb-6">
         <h1 className="text-3xl font-bold">
           Virtual Meet
         </h1>
@@ -24,34 +38,27 @@ export default function Room({
       </div>
 
 
-      <div className="flex-1 bg-gray-900 rounded-2xl flex items-center justify-center">
-        <p className="text-gray-500 text-xl">
-          Camera Preview
-        </p>
+      <div className="flex-1 bg-gray-900 rounded-2xl overflow-hidden flex items-center justify-center">
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          className="w-full h-full object-cover"
+        />
       </div>
 
 
       <div className="flex justify-center gap-4 mt-6">
 
-        <button
-          onClick={() => setMic(!mic)}
-          className="bg-white text-black px-5 py-3 rounded-xl"
-        >
-          {mic ? "🎤 Mic On" : "🔇 Mic Off"}
+        <button className="bg-white text-black px-6 py-3 rounded-xl">
+          🎤 Microphone
         </button>
 
-
-        <button
-          onClick={() => setCamera(!camera)}
-          className="bg-white text-black px-5 py-3 rounded-xl"
-        >
-          {camera ? "📷 Camera On" : "🚫 Camera Off"}
+        <button className="bg-white text-black px-6 py-3 rounded-xl">
+          📷 Camera
         </button>
 
-
-        <button
-          className="bg-red-600 px-5 py-3 rounded-xl"
-        >
+        <button className="bg-red-600 px-6 py-3 rounded-xl">
           خروج
         </button>
 
