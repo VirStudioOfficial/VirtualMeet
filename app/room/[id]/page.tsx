@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export default function Room({
   params,
@@ -8,8 +8,14 @@ export default function Room({
   params: { id: string };
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [username, setUsername] = useState("");
 
   useEffect(() => {
+    const name = localStorage.getItem("username");
+    if (name) {
+      setUsername(name);
+    }
+
     async function startCamera() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
@@ -32,9 +38,10 @@ export default function Room({
           Virtual Meet
         </h1>
 
-        <p className="text-gray-400">
-          Room: {params.id}
-        </p>
+        <div className="text-gray-400">
+          <p>Room: {params.id}</p>
+          <p>User: {username}</p>
+        </div>
       </div>
 
 
@@ -49,7 +56,6 @@ export default function Room({
 
 
       <div className="flex justify-center gap-4 mt-6">
-
         <button className="bg-white text-black px-6 py-3 rounded-xl">
           🎤 Microphone
         </button>
@@ -61,7 +67,6 @@ export default function Room({
         <button className="bg-red-600 px-6 py-3 rounded-xl">
           خروج
         </button>
-
       </div>
 
     </main>
