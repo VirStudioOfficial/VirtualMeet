@@ -1,53 +1,59 @@
 "use client";
 
-import { Message } from "../../types/message";
-
 interface MessageItemProps {
-  message: Message;
-  isOwnMessage?: boolean;
+  username: string;
+  message: string;
+  timestamp?: string | number | Date;
+  isOwn?: boolean;
 }
 
 export default function MessageItem({
+  username,
   message,
-  isOwnMessage = false,
+  timestamp,
+  isOwn = false,
 }: MessageItemProps) {
-  const time = new Date(message.createdAt).toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const formattedTime = timestamp
+    ? new Date(timestamp).toLocaleTimeString("fa-IR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
 
   return (
     <div
       className={`flex ${
-        isOwnMessage ? "justify-end" : "justify-start"
+        isOwn ? "justify-end" : "justify-start"
       }`}
     >
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2 ${
-          isOwnMessage
-            ? "rounded-br-md bg-blue-600 text-white"
-            : "rounded-bl-md bg-gray-800 text-white"
+        className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+          isOwn
+            ? "rounded-br-md bg-blue-600"
+            : "rounded-bl-md bg-gray-800"
         }`}
       >
-        {!isOwnMessage && (
-          <p className="mb-1 text-xs font-semibold text-gray-400">
-            {message.senderName}
+        {!isOwn && (
+          <p className="mb-1 text-xs font-semibold text-blue-400">
+            {username}
           </p>
         )}
 
-        <p className="break-words text-sm">
-          {message.content}
+        <p className="break-words text-sm text-white">
+          {message}
         </p>
 
-        <p
-          className={`mt-1 text-right text-[10px] ${
-            isOwnMessage
-              ? "text-blue-200"
-              : "text-gray-500"
-          }`}
-        >
-          {time}
-        </p>
+        {formattedTime && (
+          <p
+            className={`mt-1 text-[10px] ${
+              isOwn
+                ? "text-blue-200"
+                : "text-gray-500"
+            }`}
+          >
+            {formattedTime}
+          </p>
+        )}
       </div>
     </div>
   );
