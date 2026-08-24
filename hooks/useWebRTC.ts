@@ -45,8 +45,42 @@ export function useWebRTC({
     new Map()
   );
 
+  // Tracks which peers we've already attempted an ICE restart for, so we
+  // only try once per connection instead of looping if it keeps failing.
+  const iceRestartAttemptedRef = useRef<Set<string>>(new Set());
+
   const [remotePeers, setRemotePeers] = useState<Map<string, RemotePeer>>(
     new Map()
+  );
+
+  // One recovery attempt before giving up on a connection that reports
+  // "failed": can happen if TURN allocation is still finishing, or after a
+  // temporary network switch (wifi <-> mobile data). See onconnectionstatechange
+  // below for why this is preferable to immediately dropping the peer.
+  const attemptIceRestart = useCallback(
+    async (connection: RTCPeerConnection, user: RoomUser): Promise<boolean> => {
+      if (iceRestartAttemptedRef.current.has(user.socketId)) return false;
+      if (connection.signalingState !== "stable") return false;
+
+      iceRestartAttemptedRef.current.add(user.socketId);
+
+      try {
+        const offer = await connection.createOffer({ iceRestart: true });
+        await connection.setLocalDescription(offer);
+
+        getSocket().emit("webrtc-offer", {
+          to: user.socketId,
+          offer,
+        });
+
+        return true;
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error("ICE restart failed:", error);
+        return false;
+      }
+    },
+    []
   );
 
   // Re-runs offer/answer negotiation on an existing connection after new
@@ -210,8 +244,23 @@ export function useWebRTC({
           connection.connectionState
         );
 
+        // Bug fix: a "failed" state used to drop the peer immediately. But
+        // ICE can briefly report "failed" while TURN is still finishing
+        // negotiation (TURN allocation is slower than a direct STUN path),
+        // or after a temporary network switch (wifi <-> mobile data) — in
+        // both cases the connection is often recoverable via an ICE
+        // restart instead of tearing the whole peer down and losing the
+        // call. We only restart once per connection to avoid loops; if
+        // that also fails (or we're already "closed"), fall back to
+        // removing the peer as before.
+        if (connection.connectionState === "failed") {
+          attemptIceRestart(connection, user).then((restarted) => {
+            if (!restarted) removePeer(user.socketId);
+          });
+          return;
+        }
+
         if (
-          connection.connectionState === "failed" ||
           connection.connectionState === "closed" ||
           connection.connectionState === "disconnected"
         ) {
@@ -273,6 +322,8 @@ export function useWebRTC({
       closePeerConnection(entry.connection);
       peersRef.current.delete(socketId);
     }
+
+    iceRestartAttemptedRef.current.delete(socketId);
 
     setRemotePeers((current) => {
       if (!current.has(socketId)) return current;
