@@ -1,10 +1,9 @@
 export interface Meeting {
   id: string;
   roomId: string;
+  title: string;
   hostId: string;
-  title?: string;
-  createdAt: Date;
-  endedAt?: Date;
   participants: string[];
-  isRecording?: boolean;
+  createdAt: Date;
+  isActive: boolean;
 }
