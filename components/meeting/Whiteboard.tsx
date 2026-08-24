@@ -1,177 +1,233 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  PointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
-interface WhiteboardProps {
-  width?: number;
-  height?: number;
+interface Point {
+  x: number;
+  y: number;
 }
 
-export default function Whiteboard({
-  width = 900,
-  height = 550,
-}: WhiteboardProps) {
+interface Stroke {
+  points: Point[];
+}
+
+export default function Whiteboard() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [color, setColor] = useState("#ffffff");
-  const [lineWidth, setLineWidth] = useState(4);
+  const [lineWidth, setLineWidth] = useState(3);
 
-  const getPosition = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
-      const canvas = canvasRef.current;
+  function getPoint(
+    event: PointerEvent<HTMLCanvasElement>
+  ): Point {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
 
-      if (!canvas) {
-        return { x: 0, y: 0 };
-      }
+    return {
+      x:
+        ((event.clientX - rect.left) / rect.width) *
+        canvas.width,
+      y:
+        ((event.clientY - rect.top) / rect.height) *
+        canvas.height,
+    };
+  }
 
-      const rect = canvas.getBoundingClientRect();
-
-      return {
-        x: ((event.clientX - rect.left) / rect.width) * canvas.width,
-        y: ((event.clientY - rect.top) / rect.height) * canvas.height,
-      };
-    },
-    []
-  );
-
-  const startDrawing = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
-      const canvas = canvasRef.current;
-
-      if (!canvas) return;
-
-      const context = canvas.getContext("2d");
-
-      if (!context) return;
-
-      const { x, y } = getPosition(event);
-
-      context.beginPath();
-      context.moveTo(x, y);
-
-      setIsDrawing(true);
-      canvas.setPointerCapture(event.pointerId);
-    },
-    [getPosition]
-  );
-
-  const draw = useCallback(
-    (event: React.PointerEvent<HTMLCanvasElement>) => {
-      if (!isDrawing) return;
-
-      const canvas = canvasRef.current;
-
-      if (!canvas) return;
-
-      const context = canvas.getContext("2d");
-
-      if (!context) return;
-
-      const { x, y } = getPosition(event);
-
-      context.strokeStyle = color;
-      context.lineWidth = lineWidth;
-      context.lineCap = "round";
-      context.lineJoin = "round";
-
-      context.lineTo(x, y);
-      context.stroke();
-    },
-    [color, getPosition, isDrawing, lineWidth]
-  );
-
-  const stopDrawing = useCallback(
-    (event?: React.PointerEvent<HTMLCanvasElement>) => {
-      const canvas = canvasRef.current;
-
-      if (canvas && event) {
-        canvas.releasePointerCapture(event.pointerId);
-      }
-
-      setIsDrawing(false);
-    },
-    []
-  );
-
-  const clearBoard = useCallback(() => {
+  function redraw(nextStrokes = strokes) {
     const canvas = canvasRef.current;
 
-    if (!canvas) return;
+    if (!canvas) {
+      return;
+    }
 
     const context = canvas.getContext("2d");
 
-    if (!context) return;
+    if (!context) {
+      return;
+    }
 
-    context.clearRect(0, 0, canvas.width, canvas.height);
-  }, []);
+    context.clearRect(
+      0,
+      0,
+      canvas.width,
+      canvas.height
+    );
+
+    context.lineCap = "round";
+    context.lineJoin = "round";
+
+    nextStrokes.forEach((stroke) => {
+      if (stroke.points.length < 2) {
+        return;
+      }
+
+      context.beginPath();
+      context.strokeStyle = stroke.color;
+      context.lineWidth = stroke.width;
+
+      context.moveTo(
+        stroke.points[0].x,
+        stroke.points[0].y
+      );
+
+      stroke.points.slice(1).forEach((point) => {
+        context.lineTo(point.x, point.y);
+      });
+
+      context.stroke();
+    });
+  }
+
+  function startDrawing(
+    event: PointerEvent<HTMLCanvasElement>
+  ) {
+    event.currentTarget.setPointerCapture(
+      event.pointerId
+    );
+
+    const point = getPoint(event);
+
+    setIsDrawing(true);
+
+    setStrokes((current) => [
+      ...current,
+      {
+        points: [point],
+        color,
+        width: lineWidth,
+      },
+    ]);
+  }
+
+  function draw(
+    event: PointerEvent<HTMLCanvasElement>
+  ) {
+    if (!isDrawing) {
+      return;
+    }
+
+    const point = getPoint(event);
+
+    setStrokes((current) => {
+      if (current.length === 0) {
+        return current;
+      }
+
+      const updated = [...current];
+      const lastStroke = updated[updated.length - 1];
+
+      updated[updated.length - 1] = {
+        ...lastStroke,
+        points: [...lastStroke.points, point],
+      };
+
+      return updated;
+    });
+  }
+
+  function stopDrawing() {
+    setIsDrawing(false);
+  }
+
+  function clearBoard() {
+    setStrokes([]);
+  }
+
+  useEffect(() => {
+    redraw();
+  }, [strokes]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
 
-    if (!canvas) return;
+    if (!canvas) {
+      return;
+    }
 
-    const context = canvas.getContext("2d");
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
 
-    if (!context) return;
+      const previousWidth = canvas.width;
+      const previousHeight = canvas.height;
 
-    context.fillStyle = "#111827";
-    context.fillRect(0, 0, canvas.width, canvas.height);
+      canvas.width = Math.max(
+        Math.floor(rect.width * window.devicePixelRatio),
+        1
+      );
+
+      canvas.height = Math.max(
+        Math.floor(rect.height * window.devicePixelRatio),
+        1
+      );
+
+      if (previousWidth && previousHeight) {
+        redraw();
+      }
+    };
+
+    resize();
+
+    window.addEventListener("resize", resize);
+
+    return () => {
+      window.removeEventListener("resize", resize);
+    };
   }, []);
 
   return (
-    <div className="flex w-full flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-gray-900 p-3">
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-300">
-            Color
-          </label>
+    <div className="overflow-hidden rounded-2xl bg-gray-900">
+      <div className="flex flex-wrap items-center gap-3 border-b border-gray-800 p-3">
+        <span className="font-semibold">
+          🎨 Whiteboard
+        </span>
 
-          <input
-            type="color"
-            value={color}
-            onChange={(event) => setColor(event.target.value)}
-            className="h-9 w-12 cursor-pointer rounded"
-          />
-        </div>
+        <input
+          type="color"
+          value={color}
+          onChange={(event) =>
+            setColor(event.target.value)
+          }
+          className="h-9 w-12 cursor-pointer rounded-lg bg-gray-800"
+          title="انتخاب رنگ"
+        />
 
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-gray-300">
-            Size
-          </label>
-
-          <input
-            type="range"
-            min="1"
-            max="20"
-            value={lineWidth}
-            onChange={(event) =>
-              setLineWidth(Number(event.target.value))
-            }
-          />
-        </div>
+        <select
+          value={lineWidth}
+          onChange={(event) =>
+            setLineWidth(Number(event.target.value))
+          }
+          className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-white outline-none"
+        >
+          <option value={2}>نازک</option>
+          <option value={3}>متوسط</option>
+          <option value={5}>ضخیم</option>
+          <option value={8}>خیلی ضخیم</option>
+        </select>
 
         <button
           type="button"
           onClick={clearBoard}
-          className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
+          className="rounded-lg bg-red-600 px-3 py-2 text-sm hover:bg-red-700"
         >
-          🗑️ Clear
+          پاک کردن
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-gray-800 bg-gray-900">
-        <canvas
-          ref={canvasRef}
-          width={width}
-          height={height}
-          onPointerDown={startDrawing}
-          onPointerMove={draw}
-          onPointerUp={stopDrawing}
-          onPointerCancel={stopDrawing}
-          onPointerLeave={stopDrawing}
-          className="block h-auto w-full touch-none"
-        />
-      </div>
+      <canvas
+        ref={canvasRef}
+        onPointerDown={startDrawing}
+        onPointerMove={draw}
+        onPointerUp={stopDrawing}
+        onPointerCancel={stopDrawing}
+        onPointerLeave={stopDrawing}
+        className="h-[500px] w-full touch-none bg-gray-950"
+      />
     </div>
   );
 }
