@@ -14,16 +14,7 @@ function getMeetings(): Meeting[] {
   }
 
   try {
-    const parsed = JSON.parse(stored) as Array<
-      Omit<Meeting, "createdAt"> & {
-        createdAt: string;
-      }
-    >;
-
-    return parsed.map((meeting) => ({
-      ...meeting,
-      createdAt: new Date(meeting.createdAt),
-    }));
+    return JSON.parse(stored) as Meeting[];
   } catch {
     return [];
   }
@@ -56,20 +47,21 @@ export function getMeetingById(
   );
 }
 
-export function createMeeting(
-  meeting: Meeting
-): Meeting {
+export function createMeeting(data: {
+  title: string;
+  hostId: string;
+}): Meeting {
   const meetings = getMeetings();
 
-  const existing = meetings.find(
-    (item) =>
-      item.id === meeting.id ||
-      item.roomId === meeting.roomId
-  );
-
-  if (existing) {
-    return existing;
-  }
+  const meeting: Meeting = {
+    id: crypto.randomUUID(),
+    roomId: generateRoomId(),
+    title: data.title.trim() || "جلسه جدید",
+    hostId: data.hostId,
+    participants: [],
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  };
 
   meetings.push(meeting);
   saveMeetings(meetings);
@@ -84,9 +76,7 @@ export function updateMeeting(
   const meetings = getMeetings();
 
   const index = meetings.findIndex(
-    (meeting) =>
-      meeting.id === id ||
-      meeting.roomId === id
+    (meeting) => meeting.id === id
   );
 
   if (index === -1) {
@@ -103,7 +93,9 @@ export function updateMeeting(
   return meetings[index];
 }
 
-export function deleteMeeting(id: string): boolean {
+export function deleteMeeting(
+  id: string
+): boolean {
   const meetings = getMeetings();
 
   const filtered = meetings.filter(
@@ -127,16 +119,19 @@ export function addParticipant(
 ): Meeting | null {
   const meeting = getMeetingById(meetingId);
 
-  if (!meeting) {
+  if (!meeting || !meeting.isActive) {
     return null;
   }
 
-  if (!meeting.participants.includes(userId)) {
-    meeting.participants.push(userId);
+  if (meeting.participants.includes(userId)) {
+    return meeting;
   }
 
   return updateMeeting(meeting.id, {
-    participants: meeting.participants,
+    participants: [
+      ...meeting.participants,
+      userId,
+    ],
   });
 }
 
@@ -150,11 +145,16 @@ export function removeParticipant(
     return null;
   }
 
-  const participants = meeting.participants.filter(
-    (id) => id !== userId
-  );
-
   return updateMeeting(meeting.id, {
-    participants,
+    participants: meeting.participants.filter(
+      (id) => id !== userId
+    ),
   });
+}
+
+function generateRoomId(): string {
+  return Math.random()
+    .toString(36)
+    .substring(2, 8)
+    .toUpperCase();
 }
