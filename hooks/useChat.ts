@@ -2,14 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import {
-  ChatMessage,
-} from "@/components/chat/ChatBox";
-
-import {
-  socket,
-  socketEvents,
-} from "@/services/socket";
+import { ChatMessage } from "@/components/chat/ChatBox";
+import { ChatMessagePayload, getSocket } from "@/services/socket";
 
 interface UseChatOptions {
   meetingId: string;
@@ -17,46 +11,39 @@ interface UseChatOptions {
   username: string;
 }
 
-export default function useChat({
-  meetingId,
-  userId,
-  username,
-}: UseChatOptions) {
-  const [messages, setMessages] =
-    useState<ChatMessage[]>([]);
+export default function useChat({ meetingId, userId, username }: UseChatOptions) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
 
   useEffect(() => {
-    const unsubscribe = socket.on(
-      socketEvents.MESSAGE_SENT,
-      (data) => {
-        const message =
-          data as ChatMessage & {
-            meetingId?: string;
-          };
+    const socket = getSocket();
 
-        if (
-          message.meetingId &&
-          message.meetingId !== meetingId
-        ) {
-          return;
+    const handleChatMessage = (data: ChatMessagePayload) => {
+      if (data.roomId && data.roomId !== meetingId) {
+        return;
+      }
+
+      const message: ChatMessage = {
+        id: data.id,
+        userId: data.senderId,
+        username: data.senderName,
+        message: data.content,
+        timestamp: data.createdAt,
+      };
+
+      setMessages((current) => {
+        if (current.some((item) => item.id === message.id)) {
+          return current;
         }
 
-        setMessages((current) => {
-          if (
-            current.some(
-              (item) =>
-                item.id === message.id
-            )
-          ) {
-            return current;
-          }
+        return [...current, message];
+      });
+    };
 
-          return [...current, message];
-        });
-      }
-    );
+    socket.on("chat-message", handleChatMessage);
 
-    return unsubscribe;
+    return () => {
+      socket.off("chat-message", handleChatMessage);
+    };
   }, [meetingId]);
 
   const sendMessage = useCallback(
@@ -67,28 +54,18 @@ export default function useChat({
         return;
       }
 
-      const message: ChatMessage & {
-        meetingId: string;
-      } = {
+      const message: ChatMessagePayload = {
         id: crypto.randomUUID(),
-        meetingId,
-        userId,
-        username,
-        message: trimmed.slice(0, 1000),
-        timestamp:
-          new Date().toISOString(),
+        roomId: meetingId,
+        senderId: userId,
+        senderName: username,
+        content: trimmed.slice(0, 1000),
+        createdAt: new Date().toISOString(),
       };
 
-      socket.emit(
-        socketEvents.MESSAGE_SENT,
-        message
-      );
+      getSocket().emit("chat-message", message);
     },
-    [
-      meetingId,
-      userId,
-      username,
-    ]
+    [meetingId, userId, username]
   );
 
   const clearMessages = useCallback(() => {
