@@ -9,6 +9,7 @@ import ChatBox from "../../../components/chat/ChatBox";
 import ScreenShare from "../../../components/meeting/ScreenShare";
 import { useMeeting } from "../../../hooks/useMeeting";
 import { useWebRTC } from "../../../hooks/useWebRTC";
+import { getCurrentUser } from "../../../services/auth";
 import { User } from "../../../types/user";
 
 export default function Room({
@@ -56,10 +57,14 @@ export default function Room({
 
   // 1. Grab local camera/mic on mount.
   useEffect(() => {
-    const name = localStorage.getItem("username");
+    const user = getCurrentUser();
 
-    if (name) {
-      setUsername(name);
+    if (user?.username) {
+      setUsername(user.username);
+    } else {
+      // No logged-in user found — fall back to a guest name so the
+      // signaling connection still happens instead of hanging forever.
+      setUsername(`Guest-${userId.slice(-4)}`);
     }
 
     async function startMedia() {
