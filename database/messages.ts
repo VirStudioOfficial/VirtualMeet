@@ -2,6 +2,10 @@ import { Message } from "../types/message";
 
 const MESSAGES_KEY = "virtual-meet-messages";
 
+type StoredMessage = Omit<Message, "createdAt"> & {
+  createdAt: string;
+};
+
 function getMessages(): Message[] {
   if (typeof window === "undefined") {
     return [];
@@ -14,7 +18,12 @@ function getMessages(): Message[] {
   }
 
   try {
-    return JSON.parse(stored) as Message[];
+    const parsed = JSON.parse(stored) as StoredMessage[];
+
+    return parsed.map((message) => ({
+      ...message,
+      createdAt: new Date(message.createdAt),
+    }));
   } catch {
     return [];
   }
@@ -57,6 +66,14 @@ export function createMessage(
   message: Message
 ): Message {
   const messages = getMessages();
+
+  const existing = messages.find(
+    (item) => item.id === message.id
+  );
+
+  if (existing) {
+    return existing;
+  }
 
   messages.push(message);
   saveMessages(messages);
