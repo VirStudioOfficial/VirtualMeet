@@ -27,7 +27,7 @@ interface PeerEntry {
 
 export function useWebRTC({
   localStream,
-  selfSocketId: _selfSocketId,
+  selfSocketId,
 }: UseWebRTCOptions) {
   const peersRef = useRef<Map<string, PeerEntry>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(localStream);
@@ -178,6 +178,14 @@ export function useWebRTC({
   );
 
   // Handle incoming signaling events from peers who are calling us.
+  //
+  // Re-subscribes whenever selfSocketId changes: useMeeting's
+  // leaveMeeting() calls disconnectSocket(), which tears down and nulls
+  // the module-level socket instance, and the next joinMeeting() creates
+  // a brand new one via getSocket(). selfSocketId only gets set (to a
+  // fresh value) once a "room-joined" reply comes back on that new
+  // instance, so keying off it here guarantees we're always attached to
+  // the socket that's actually alive — never a torn-down one.
   useEffect(() => {
     const socket = getSocket();
 
@@ -288,7 +296,7 @@ export function useWebRTC({
       socket.off("participant-left", handleParticipantLeft);
       socket.off("participant-updated", handleParticipantUpdated);
     };
-  }, [getOrCreatePeer, removePeer, updateRemotePeer]);
+  }, [getOrCreatePeer, removePeer, updateRemotePeer, selfSocketId]);
 
   useEffect(() => {
     return () => {
