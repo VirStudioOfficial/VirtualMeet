@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface ScreenShareProps {
   onStreamChange?: (stream: MediaStream | null) => void;
@@ -15,9 +15,20 @@ export default function ScreenShare({
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState("");
 
-  const startSharing = useCallback(async () => {
+  async function startSharing() {
     try {
       setError("");
+
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        setError(
+          "اشتراک‌گذاری صفحه در این مرورگر پشتیبانی نمی‌شود."
+        );
+        return;
+      }
+
+      if (streamRef.current) {
+        return;
+      }
 
       const stream =
         await navigator.mediaDevices.getDisplayMedia({
@@ -29,39 +40,32 @@ export default function ScreenShare({
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
       }
-
-      setIsSharing(true);
-      onStreamChange?.(stream);
 
       const videoTrack = stream.getVideoTracks()[0];
 
-      if (videoTrack) {
-        videoTrack.onended = () => {
-          stream.getTracks().forEach((track) => track.stop());
+      videoTrack?.addEventListener(
+        "ended",
+        stopSharing
+      );
 
-          streamRef.current = null;
-
-          if (videoRef.current) {
-            videoRef.current.srcObject = null;
-          }
-
-          setIsSharing(false);
-          onStreamChange?.(null);
-        };
-      }
+      setIsSharing(true);
+      onStreamChange?.(stream);
     } catch {
-      setError("اشتراک‌گذاری صفحه شروع نشد.");
+      setError("اشتراک‌گذاری صفحه لغو یا ناموفق شد.");
       setIsSharing(false);
     }
-  }, [onStreamChange]);
+  }
 
-  const stopSharing = useCallback(() => {
-    streamRef.current?.getTracks().forEach((track) => {
-      track.stop();
-    });
+  function stopSharing() {
+    if (streamRef.current) {
+      streamRef.current
+        .getTracks()
+        .forEach((track) => track.stop());
 
-    streamRef.current = null;
+      streamRef.current = null;
+    }
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
@@ -69,48 +73,57 @@ export default function ScreenShare({
 
     setIsSharing(false);
     onStreamChange?.(null);
-  }, [onStreamChange]);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current
+          .getTracks()
+          .forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="relative min-h-[240px] overflow-hidden rounded-2xl bg-gray-900">
-        {isSharing ? (
+    <div className="space-y-3">
+      {isSharing && (
+        <div className="relative overflow-hidden rounded-2xl bg-gray-900">
           <video
             ref={videoRef}
             autoPlay
             playsInline
             muted
-            className="h-full min-h-[240px] w-full object-contain"
+            className="max-h-[500px] w-full object-contain"
           />
-        ) : (
-          <div className="flex min-h-[240px] items-center justify-center text-gray-500">
-            <div className="text-center">
-              <div className="mb-3 text-5xl">🖥️</div>
-              <p>Screen sharing is off</p>
-            </div>
-          </div>
-        )}
-      </div>
 
-      {error && (
-        <p className="rounded-lg bg-red-900/40 p-2 text-center text-sm text-red-300">
-          {error}
-        </p>
+          <div className="absolute left-3 top-3 rounded-lg bg-black/60 px-3 py-1.5 text-sm backdrop-blur-sm">
+            🖥️ در حال اشتراک‌گذاری صفحه
+          </div>
+        </div>
       )}
 
       <button
         type="button"
-        onClick={isSharing ? stopSharing : startSharing}
+        onClick={
+          isSharing ? stopSharing : startSharing
+        }
         className={`rounded-xl px-5 py-3 font-medium transition ${
           isSharing
-            ? "bg-red-600 text-white hover:bg-red-700"
-            : "bg-white text-black hover:bg-gray-200"
+            ? "bg-red-600 hover:bg-red-700"
+            : "bg-gray-800 hover:bg-gray-700"
         }`}
       >
         {isSharing
-          ? "🛑 Stop Sharing"
-          : "🖥️ Share Screen"}
+          ? "🛑 توقف اشتراک صفحه"
+          : "🖥️ اشتراک صفحه"}
       </button>
+
+      {error && (
+        <p className="rounded-xl bg-red-900/30 p-3 text-sm text-red-400">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
