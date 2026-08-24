@@ -36,14 +36,39 @@ export function useWebRTC({
     new Map()
   );
 
+  // Re-runs offer/answer negotiation on an existing connection after new
+  // tracks were added post-hoc (see fix below). Without this, adding a
+  // track after the initial connection never reaches the remote peer.
+  const renegotiate = useCallback(
+    async (connection: RTCPeerConnection, user: RoomUser) => {
+      try {
+        const offer = await connection.createOffer();
+        await connection.setLocalDescription(offer);
+
+        getSocket().emit("webrtc-offer", {
+          to: user.socketId,
+          offer,
+        });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error("Failed to renegotiate WebRTC connection:", error);
+      }
+    },
+    []
+  );
+
   useEffect(() => {
     localStreamRef.current = localStream;
 
     // Whenever the local stream changes (camera/mic toggled, screen share
-    // swapped in/out), push the current tracks to every existing peer
-    // connection instead of waiting for a brand new connection to be made.
-    peersRef.current.forEach(({ connection }) => {
+    // swapped in/out, or the stream simply arrives late from getUserMedia
+    // after a peer connection was already created without it), push the
+    // current tracks to every existing peer connection instead of waiting
+    // for a brand new connection to be made.
+    peersRef.current.forEach(({ connection, user }) => {
       if (!localStream) return;
+
+      let addedNewTrack = false;
 
       localStream.getTracks().forEach((track) => {
         const sender = connection
@@ -55,11 +80,27 @@ export function useWebRTC({
             sender.replaceTrack(track);
           }
         } else {
+          // Bug fix: previously we only ever called addTrack() here and
+          // never renegotiated. addTrack() after the initial offer/answer
+          // exchange fires the connection's `negotiationneeded` event, but
+          // nothing was listening for it, so no new offer was ever sent.
+          // The remote peer's SDP was never updated to describe this
+          // track, so audio/video added after the first connection (e.g.
+          // because getUserMedia hadn't resolved yet when we first called
+          // the peer) silently never reached them. We now track whether a
+          // *new* track (not just a replaced one) was added and, if so,
+          // kick off a fresh offer below.
           connection.addTrack(track, localStream);
+          addedNewTrack = true;
         }
       });
+
+      if (addedNewTrack) {
+        renegotiate(connection, user);
+      }
     });
-  }, [localStream]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localStream, renegotiate]);
 
   const updateRemotePeer = useCallback(
     (socketId: string, updates: Partial<RemotePeer>) => {
