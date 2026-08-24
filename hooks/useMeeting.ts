@@ -152,9 +152,27 @@ export function useMeeting({ roomId, currentUser }: UseMeetingOptions) {
     if (socket.connected) {
       emitJoin();
     } else {
-      socket.once("connect", emitJoin);
       connectSocket();
     }
+
+    // Bug fix: this used to be socket.once("connect", emitJoin), which
+    // only ever fired for the very first connection. Socket.IO's client
+    // reconnects automatically by default (e.g. after the free-tier
+    // Render server sleeps/wakes, or a brief mobile network drop), and
+    // every reconnection gets a brand-new socket.id from the server —
+    // but since nothing was listening for "connect" anymore after the
+    // first time, join-room was never re-emitted. The server (and every
+    // other participant, who still only knew our old socket.id) never
+    // learned about the new connection, so WebRTC offers/candidates kept
+    // getting exchanged against a socket.id the server no longer
+    // recognized — which is exactly the repeated
+    // connect/disconnect/new-socket-id pattern seen in the logs. Using
+    // "on" instead of "once" means every reconnect re-joins the room and
+    // gets a fresh "room-joined" reply, so downstream code (which reacts
+    // to connectionEpoch/selfSocketId already) picks up the new identity
+    // and re-establishes peer connections correctly instead of limping
+    // along on a stale one.
+    socket.on("connect", emitJoin);
   }, []);
 
   const leaveMeeting = useCallback(() => {
