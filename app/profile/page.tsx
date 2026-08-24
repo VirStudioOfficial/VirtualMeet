@@ -7,12 +7,15 @@ import { getCurrentUser } from "../../services/auth";
 import { updateUser } from "../../database/users";
 import { User } from "../../types/user";
 
+const USER_KEY = "virtual-meet-user";
+
 export default function ProfilePage() {
   const router = useRouter();
 
   const [user, setUser] = useState<User | null>(null);
   const [username, setUsername] = useState("");
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const currentUser = getCurrentUser();
@@ -29,20 +32,31 @@ export default function ProfilePage() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!user || !username.trim()) {
+    if (!user) {
       return;
     }
 
+    const newUsername = username.trim();
+
+    if (!newUsername) {
+      setError("نام کاربری نمی‌تواند خالی باشد.");
+      return;
+    }
+
+    setError("");
+
     const updatedUser = updateUser(user.id, {
-      username: username.trim(),
+      username: newUsername,
     });
 
     if (!updatedUser) {
+      setError("ذخیره پروفایل انجام نشد.");
       return;
     }
 
+    // به‌روزرسانی کاربر فعلی برای Auth
     localStorage.setItem(
-      "virtual-meet-user",
+      USER_KEY,
       JSON.stringify(updatedUser)
     );
 
@@ -134,6 +148,12 @@ export default function ProfilePage() {
                 className="w-full cursor-not-allowed rounded-xl bg-gray-800/60 px-4 py-3 text-gray-500"
               />
             </div>
+
+            {error && (
+              <div className="rounded-xl bg-red-900/30 p-3 text-sm text-red-400">
+                {error}
+              </div>
+            )}
 
             {saved && (
               <div className="rounded-xl bg-green-900/30 p-3 text-sm text-green-400">
