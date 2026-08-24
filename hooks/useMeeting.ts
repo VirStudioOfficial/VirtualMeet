@@ -92,6 +92,12 @@ export function useMeeting({ roomId, currentUser }: UseMeetingOptions) {
     []
   );
 
+  const selfSocketIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    selfSocketIdRef.current = selfSocketId;
+  }, [selfSocketId]);
+
   useEffect(() => {
     const socket = getSocket();
 
@@ -126,7 +132,7 @@ export function useMeeting({ roomId, currentUser }: UseMeetingOptions) {
         current.map((u) => (u.id === user.socketId ? toUser(user) : u))
       );
       setIsHost((current) =>
-        user.socketId === selfSocketId ? user.isHost : current
+        user.socketId === selfSocketIdRef.current ? user.isHost : current
       );
     }
 
@@ -157,7 +163,7 @@ export function useMeeting({ roomId, currentUser }: UseMeetingOptions) {
       socket.off("participant-updated", handleParticipantUpdated);
       socket.off("chat-message", handleChatMessage);
     };
-  }, [selfSocketId]);
+  }, []);
 
   useEffect(() => {
     return () => {
