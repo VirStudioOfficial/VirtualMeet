@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function Lobby() {
+function LobbyContent() {
   const [name, setName] = useState("");
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -37,5 +37,13 @@ export default function Lobby() {
         Join Room
       </button>
     </main>
+  );
+}
+
+export default function Lobby() {
+  return (
+    <Suspense fallback={null}>
+      <LobbyContent />
+    </Suspense>
   );
 }
