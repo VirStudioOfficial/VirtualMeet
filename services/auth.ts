@@ -2,6 +2,7 @@ import { User } from "../types/user";
 
 const USER_KEY = "virtual-meet-user";
 const TOKEN_KEY = "virtual-meet-token";
+const USERS_KEY = "virtual-meet-users";
 
 export interface RegisterData {
   username: string;
@@ -12,6 +13,39 @@ export interface RegisterData {
 export interface LoginData {
   email: string;
   password: string;
+}
+
+interface StoredUser extends User {
+  password: string;
+}
+
+function getStoredUsers(): StoredUser[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const stored = localStorage.getItem(USERS_KEY);
+
+  if (!stored) {
+    return [];
+  }
+
+  try {
+    return JSON.parse(stored) as StoredUser[];
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredUsers(users: StoredUser[]): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  localStorage.setItem(
+    USERS_KEY,
+    JSON.stringify(users)
+  );
 }
 
 export function getCurrentUser(): User | null {
@@ -33,41 +67,86 @@ export function getCurrentUser(): User | null {
   }
 }
 
-export function register(data: RegisterData): User {
+export function register(data: RegisterData): User | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const users = getStoredUsers();
+
+  const emailExists = users.some(
+    (user) =>
+      user.email.toLowerCase() ===
+      data.email.toLowerCase()
+  );
+
+  if (emailExists) {
+    return null;
+  }
+
   const user: User = {
     id: crypto.randomUUID(),
-    username: data.username,
-    email: data.email,
+    username: data.username.trim(),
+    email: data.email.trim().toLowerCase(),
     isHost: false,
     isMuted: false,
     isCameraOff: false,
   };
 
-  localStorage.setItem(USER_KEY, JSON.stringify(user));
+  const storedUser: StoredUser = {
+    ...user,
+    password: data.password,
+  };
 
-  const token = crypto.randomUUID();
-  localStorage.setItem(TOKEN_KEY, token);
+  users.push(storedUser);
+  saveStoredUsers(users);
 
-  return user;
-}
-
-export function login(data: LoginData): User | null {
-  const storedUser = getCurrentUser();
-
-  if (!storedUser) {
-    return null;
-  }
-
-  if (storedUser.email !== data.email) {
-    return null;
-  }
+  localStorage.setItem(
+    USER_KEY,
+    JSON.stringify(user)
+  );
 
   localStorage.setItem(
     TOKEN_KEY,
     crypto.randomUUID()
   );
 
-  return storedUser;
+  return user;
+}
+
+export function login(
+  data: LoginData
+): User | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const users = getStoredUsers();
+
+  const user = users.find(
+    (item) =>
+      item.email.toLowerCase() ===
+        data.email.trim().toLowerCase() &&
+      item.password === data.password
+  );
+
+  if (!user) {
+    return null;
+  }
+
+  const { password: _password, ...safeUser } = user;
+
+  localStorage.setItem(
+    USER_KEY,
+    JSON.stringify(safeUser)
+  );
+
+  localStorage.setItem(
+    TOKEN_KEY,
+    crypto.randomUUID()
+  );
+
+  return safeUser;
 }
 
 export function logout(): void {
@@ -86,7 +165,7 @@ export function isAuthenticated(): boolean {
 
   return Boolean(
     localStorage.getItem(USER_KEY) &&
-    localStorage.getItem(TOKEN_KEY)
+      localStorage.getItem(TOKEN_KEY)
   );
 }
 
