@@ -1,139 +1,108 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 
 import {
   getMeetingById,
   addParticipant,
   removeParticipant,
-  updateMeeting,
-} from "../database/meetings";
+} from "@/database/meetings";
 
-import { getCurrentUser } from "../services/auth";
-import { Meeting } from "../types/meeting";
+import {
+  getCurrentUser,
+} from "@/services/auth";
 
-export function useMeeting(roomId: string) {
-  const [meeting, setMeeting] = useState<Meeting | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+import { Meeting } from "@/types/meeting";
+import { User } from "@/types/user";
 
-  const loadMeeting = useCallback(() => {
-    setLoading(true);
-    setError("");
+export default function useMeeting(
+  roomId: string
+) {
+  const [meeting, setMeeting] =
+    useState<Meeting | null>(null);
 
-    const foundMeeting = getMeetingById(roomId);
+  const [user, setUser] =
+    useState<User | null>(null);
 
-    if (!foundMeeting) {
-      setMeeting(null);
-      setError("این اتاق وجود ندارد.");
+  const [loading, setLoading] =
+    useState(true);
+
+  const [joined, setJoined] =
+    useState(false);
+
+  const loadMeeting =
+    useCallback(() => {
+      const currentUser =
+        getCurrentUser();
+
+      setUser(currentUser);
+
+      const currentMeeting =
+        getMeetingById(roomId);
+
+      setMeeting(currentMeeting);
+
       setLoading(false);
-      return null;
-    }
-
-    setMeeting(foundMeeting);
-    setLoading(false);
-
-    return foundMeeting;
-  }, [roomId]);
+    }, [roomId]);
 
   useEffect(() => {
     loadMeeting();
   }, [loadMeeting]);
 
-  const joinMeeting = useCallback(() => {
-    const user = getCurrentUser();
-
-    if (!user) {
-      setError("برای ورود به جلسه باید وارد حساب شوید.");
-      return false;
-    }
-
-    const foundMeeting = getMeetingById(roomId);
-
-    if (!foundMeeting) {
-      setError("این اتاق وجود ندارد.");
-      return false;
-    }
-
-    const updatedMeeting = addParticipant(
-      roomId,
-      user.id
-    );
-
-    if (!updatedMeeting) {
-      setError("ورود به جلسه انجام نشد.");
-      return false;
-    }
-
-    setMeeting(updatedMeeting);
-    setError("");
-
-    return true;
-  }, [roomId]);
-
-  const leaveMeeting = useCallback(() => {
-    const user = getCurrentUser();
-
-    if (!user) {
-      return false;
-    }
-
-    const updatedMeeting = removeParticipant(
-      roomId,
-      user.id
-    );
-
-    if (!updatedMeeting) {
-      return false;
-    }
-
-    setMeeting(updatedMeeting);
-
-    return true;
-  }, [roomId]);
-
-  const endMeeting = useCallback(() => {
-    const user = getCurrentUser();
-
-    if (!user || !meeting) {
-      return false;
-    }
-
-    if (meeting.hostId !== user.id) {
-      setError("فقط سازنده جلسه می‌تواند آن را پایان دهد.");
-      return false;
-    }
-
-    const updatedMeeting = updateMeeting(
-      meeting.id,
-      {
-        isActive: false,
+  const joinMeeting =
+    useCallback(() => {
+      if (!user || !meeting) {
+        return null;
       }
-    );
 
-    if (!updatedMeeting) {
-      setError("پایان جلسه انجام نشد.");
-      return false;
-    }
+      const updated =
+        addParticipant(
+          meeting.id,
+          user.id
+        );
 
-    setMeeting(updatedMeeting);
-    setError("");
+      if (!updated) {
+        return null;
+      }
 
-    return true;
-  }, [meeting]);
+      setMeeting(updated);
+      setJoined(true);
+
+      return updated;
+    }, [user, meeting]);
+
+  const leaveMeeting =
+    useCallback(() => {
+      if (!user || !meeting) {
+        return;
+      }
+
+      const updated =
+        removeParticipant(
+          meeting.id,
+          user.id
+        );
+
+      setMeeting(updated);
+      setJoined(false);
+    }, [user, meeting]);
+
+  const refresh =
+    useCallback(() => {
+      loadMeeting();
+    }, [loadMeeting]);
 
   return {
     meeting,
+    user,
     loading,
-    error,
-    isHost:
-      meeting !== null &&
-      getCurrentUser()?.id === meeting.hostId,
-    participantCount:
-      meeting?.participants.length ?? 0,
-    loadMeeting,
+    joined,
     joinMeeting,
     leaveMeeting,
-    endMeeting,
+    refresh,
   };
 }
