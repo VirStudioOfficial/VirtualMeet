@@ -140,10 +140,36 @@ export default function Room({
     });
   }, [roomUsers, callPeer]);
 
-  function toggleCamera() {
-    const track = localStream?.getVideoTracks()[0];
+  async function toggleCamera() {
+    const track = streamRef.current?.getVideoTracks()[0];
 
     if (!track) return;
+
+    if (track.readyState === "ended") {
+      // The track was stopped (hardware released) rather than merely
+      // disabled — toggling .enabled on a dead track does nothing, which
+      // is why "turn camera back on" looked like it was ignored. Recover
+      // by re-acquiring a fresh video track instead of failing silently.
+      try {
+        const freshStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        const freshTrack = freshStream.getVideoTracks()[0];
+
+        if (!freshTrack || !streamRef.current) return;
+
+        streamRef.current.getVideoTracks().forEach((t) => {
+          streamRef.current?.removeTrack(t);
+        });
+        streamRef.current.addTrack(freshTrack);
+        setLocalStream(new MediaStream(streamRef.current.getTracks()));
+        setCameraOn(true);
+        updateStatus({ isCameraOff: false });
+      } catch {
+        setMediaError("دسترسی به دوربین امکان‌پذیر نیست.");
+      }
+      return;
+    }
 
     track.enabled = !track.enabled;
     setCameraOn(track.enabled);
@@ -151,7 +177,7 @@ export default function Room({
   }
 
   function toggleMic() {
-    const track = localStream?.getAudioTracks()[0];
+    const track = streamRef.current?.getAudioTracks()[0];
 
     if (!track) return;
 
@@ -224,8 +250,14 @@ export default function Room({
 
   const videoParticipants = useMemo(() => {
     const self = {
+      // Always use our own stable userId as the key/id for our own tile —
+      // never selfSocketId, which starts null and only gets a value once
+      // the signaling connection completes. Switching id values makes
+      // React treat "self" as a brand new video tile (VideoGrid keys off
+      // user.id), unmounting and remounting VideoPlayer right as camera
+      // state churns, which was interacting badly with the toggle.
       user: {
-        id: selfSocketId ?? userId,
+        id: userId,
         username: username || "Guest",
         isCameraOff: !cameraOn,
         isMuted: !micOn,
@@ -244,7 +276,7 @@ export default function Room({
     }));
 
     return [self, ...others];
-  }, [selfSocketId, userId, username, cameraOn, micOn, localStream, remotePeers]);
+  }, [userId, username, cameraOn, micOn, localStream, remotePeers]);
 
   return (
     <main className="h-screen bg-black text-white p-6 flex flex-col">
