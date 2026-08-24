@@ -1,121 +1,184 @@
-import { io, Socket } from "socket.io-client";
+"use client";
 
-import { config } from "../lib/config";
-
-export interface RoomUser {
-  socketId: string;
-  id: string;
-  username: string;
-  isHost: boolean;
-  isMuted: boolean;
-  isCameraOff: boolean;
-}
-
-export interface ChatMessagePayload {
-  id: string;
+export interface SocketMessage<T = unknown> {
+  type: string;
   roomId: string;
-  senderId: string;
-  senderName: string;
-  content: string;
-  createdAt: string;
+  senderId?: string;
+  data?: T;
 }
 
-interface ServerToClientEvents {
-  "room-joined": (payload: {
-    self: RoomUser;
-    participants: RoomUser[];
-  }) => void;
-  "participant-joined": (user: RoomUser) => void;
-  "participant-left": (payload: { socketId: string }) => void;
-  "participant-updated": (user: RoomUser) => void;
-  "webrtc-offer": (payload: {
-    from: string;
-    offer: RTCSessionDescriptionInit;
-  }) => void;
-  "webrtc-answer": (payload: {
-    from: string;
-    answer: RTCSessionDescriptionInit;
-  }) => void;
-  "webrtc-ice-candidate": (payload: {
-    from: string;
-    candidate: RTCIceCandidateInit;
-  }) => void;
-  "chat-message": (message: ChatMessagePayload) => void;
-  "error-message": (payload: { message: string }) => void;
-}
+type MessageHandler<T = unknown> = (
+  message: SocketMessage<T>
+) => void;
 
-interface ClientToServerEvents {
-  "join-room": (payload: {
-    roomId: string;
-    user: { id: string; username: string };
-  }) => void;
-  "leave-room": () => void;
-  "webrtc-offer": (payload: {
-    to: string;
-    offer: RTCSessionDescriptionInit;
-  }) => void;
-  "webrtc-answer": (payload: {
-    to: string;
-    answer: RTCSessionDescriptionInit;
-  }) => void;
-  "webrtc-ice-candidate": (payload: {
-    to: string;
-    candidate: RTCIceCandidateInit;
-  }) => void;
-  "update-status": (payload: {
-    isMuted?: boolean;
-    isCameraOff?: boolean;
-  }) => void;
-  "chat-message": (message: ChatMessagePayload) => void;
-}
+export class MeetSocket {
+  private socket: WebSocket | null = null;
+  private handlers = new Map<
+    string,
+    Set<MessageHandler>
+  >();
 
-export type VirtualMeetSocket = Socket<
-  ServerToClientEvents,
-  ClientToServerEvents
->;
+  private url: string;
 
-let socket: VirtualMeetSocket | null = null;
+  constructor(url?: string) {
+    this.url =
+      url ||
+      process.env.NEXT_PUBLIC_SOCKET_URL ||
+      "ws://localhost:3001";
+  }
 
-/**
- * Returns a singleton socket.io connection to the signaling server.
- * The connection is created lazily and reused across the app so we don't
- * open multiple sockets when several components call this on mount.
- */
-export function getSocket(): VirtualMeetSocket {
-  if (!socket) {
-    const url = config.socket.url || "http://localhost:3001";
+  connect(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (this.socket?.readyState === WebSocket.OPEN) {
+        resolve();
+        return;
+      }
 
-    socket = io(url, {
-      autoConnect: false,
-      transports: ["websocket", "polling"],
+      const socket = new WebSocket(this.url);
+
+      this.socket = socket;
+
+      socket.onopen = () => {
+        resolve();
+      };
+
+      socket.onerror = () => {
+        reject(
+          new Error("اتصال به سرور Socket برقرار نشد.")
+        );
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const message =
+            JSON.parse(event.data) as SocketMessage;
+
+          const handlers = this.handlers.get(
+            message.type
+          );
+
+          handlers?.forEach((handler) => {
+            handler(message);
+          });
+        } catch {
+          console.error(
+            "Invalid socket message received."
+          );
+        }
+      };
+
+      socket.onclose = () => {
+        this.socket = null;
+      };
     });
   }
 
-  return socket;
-}
-
-export function connectSocket(): VirtualMeetSocket {
-  const s = getSocket();
-
-  if (!s.connected) {
-    s.connect();
+  disconnect(): void {
+    if (this.socket) {
+      this.socket.close();
+      this.socket = null;
+    }
   }
 
-  return s;
+  send<T>(
+    message: SocketMessage<T>
+  ): boolean {
+    if (
+      !this.socket ||
+      this.socket.readyState !== WebSocket.OPEN
+    ) {
+      return false;
+    }
+
+    this.socket.send(
+      JSON.stringify(message)
+    );
+
+    return true;
+  }
+
+  on<T = unknown>(
+    type: string,
+    handler: MessageHandler<T>
+  ): () => void {
+    if (!this.handlers.has(type)) {
+      this.handlers.set(
+        type,
+        new Set()
+      );
+    }
+
+    this.handlers
+      .get(type)!
+      .add(handler as MessageHandler);
+
+    return () => {
+      this.handlers
+        .get(type)
+        ?.delete(handler as MessageHandler);
+    };
+  }
+
+  joinRoom(
+    roomId: string,
+    senderId: string
+  ): boolean {
+    return this.send({
+      type: "join-room",
+      roomId,
+      senderId,
+    });
+  }
+
+  leaveRoom(
+    roomId: string,
+    senderId: string
+  ): boolean {
+    return this.send({
+      type: "leave-room",
+      roomId,
+      senderId,
+    });
+  }
+
+  sendOffer(
+    roomId: string,
+    senderId: string,
+    offer: RTCSessionDescriptionInit
+  ): boolean {
+    return this.send({
+      type: "offer",
+      roomId,
+      senderId,
+      data: offer,
+    });
+  }
+
+  sendAnswer(
+    roomId: string,
+    senderId: string,
+    answer: RTCSessionDescriptionInit
+  ): boolean {
+    return this.send({
+      type: "answer",
+      roomId,
+      senderId,
+      data: answer,
+    });
+  }
+
+  sendIceCandidate(
+    roomId: string,
+    senderId: string,
+    candidate: RTCIceCandidateInit
+  ): boolean {
+    return this.send({
+      type: "ice-candidate",
+      roomId,
+      senderId,
+      data: candidate,
+    });
+  }
 }
 
-export function disconnectSocket(): void {
-  if (!socket) return;
-
-  // Fully tear the socket down instead of just calling .disconnect() and
-  // leaving the module-level reference pointing at a dead socket object.
-  // Reusing a disconnected socket (getSocket() would have returned this
-  // same stale instance next time) meant reconnecting could hand out a
-  // new server-side socket.id while old event listeners / in-flight
-  // events from the previous connection were still attached, which is
-  // what caused the phantom duplicate self-tile and calls going to a
-  // socket id the server no longer recognized (so media never arrived).
-  socket.removeAllListeners();
-  socket.disconnect();
-  socket = null;
-}
+export const socket = new MeetSocket();
