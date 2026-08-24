@@ -40,13 +40,27 @@ export function useWebRTC({ localStream, selfSocketId }: UseWebRTCOptions) {
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(localStream);
 
+  const renegotiate = useCallback(
+    async (remoteSocketId: string, peer: RTCPeerConnection) => {
+      const offer = await createOffer(peer);
+
+      getSocket().emit("webrtc-offer", {
+        to: remoteSocketId,
+        offer,
+      });
+    },
+    []
+  );
+
   useEffect(() => {
     localStreamRef.current = localStream;
 
-    // If tracks change (e.g. camera toggled after connections exist),
+    // If tracks change (e.g. camera toggled after connections exist, or
+    // getUserMedia resolved after the peer connection was already built),
     // make sure already-open peer connections send the latest tracks.
-    peersRef.current.forEach((peer) => {
+    peersRef.current.forEach((peer, remoteSocketId) => {
       const senders = peer.getSenders();
+      let addedNewTrack = false;
 
       localStream?.getTracks().forEach((track) => {
         const sender = senders.find((s) => s.track?.kind === track.kind);
@@ -54,11 +68,20 @@ export function useWebRTC({ localStream, selfSocketId }: UseWebRTCOptions) {
         if (sender) {
           sender.replaceTrack(track);
         } else {
+          // A brand new transceiver. Unlike replaceTrack, this requires
+          // renegotiation (a fresh offer/answer) before the remote side
+          // actually receives anything on it — without renegotiating,
+          // the track exists locally but silently never reaches the peer.
           peer.addTrack(track, localStream);
+          addedNewTrack = true;
         }
       });
+
+      if (addedNewTrack) {
+        renegotiate(remoteSocketId, peer);
+      }
     });
-  }, [localStream]);
+  }, [localStream, renegotiate]);
 
   const upsertRemotePeer = useCallback(
     (socketId: string, update: Partial<RemotePeer>) => {
