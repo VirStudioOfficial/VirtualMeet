@@ -96,7 +96,7 @@ export default function MeetingsPage() {
                   </h2>
 
                   <p className="mt-1 text-sm text-gray-400">
-                    Room: {meeting.id}
+                    Room: {meeting.roomId}
                   </p>
 
                   <p className="mt-1 text-xs text-gray-500">
@@ -110,7 +110,7 @@ export default function MeetingsPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      router.push(`/room/${meeting.id}`)
+                      router.push(`/room/${meeting.roomId}`)
                     }
                     className="rounded-xl bg-blue-600 px-4 py-2 text-sm hover:bg-blue-700"
                   >
@@ -119,7 +119,9 @@ export default function MeetingsPage() {
 
                   <button
                     type="button"
-                    onClick={() => handleDelete(meeting.id)}
+                    onClick={() =>
+                      handleDelete(meeting.id)
+                    }
                     className="rounded-xl bg-red-600 px-4 py-2 text-sm hover:bg-red-700"
                   >
                     حذف
