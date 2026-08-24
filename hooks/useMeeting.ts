@@ -44,6 +44,14 @@ export function useMeeting({ roomId, currentUser }: UseMeetingOptions) {
   const roomIdRef = useRef(roomId);
   roomIdRef.current = roomId;
 
+  // getSocket()/connectSocket() return whatever the current module-level
+  // socket instance is, but disconnectSocket() (called from leaveMeeting)
+  // nulls that instance out and the NEXT joinMeeting() call creates a
+  // brand new one. Bumping this on every joinMeeting() call forces the
+  // listener effect below to re-run and attach to the fresh instance
+  // instead of staying attached to a torn-down socket.
+  const [connectionEpoch, setConnectionEpoch] = useState(0);
+
   useEffect(() => {
     const socket = getSocket();
 
@@ -118,10 +126,18 @@ export function useMeeting({ roomId, currentUser }: UseMeetingOptions) {
       socket.off("chat-message", handleChatMessage);
       socket.off("disconnect", handleDisconnect);
     };
-  }, []);
+  }, [connectionEpoch]);
 
   const joinMeeting = useCallback(() => {
-    const socket = connectSocket();
+    // getSocket() creates the (possibly brand new, post-disconnectSocket)
+    // instance synchronously. We grab it and bump connectionEpoch BEFORE
+    // calling .connect(), so the listener effect is guaranteed to attach
+    // its "room-joined" etc. handlers to this exact instance before any
+    // network round-trip to the server can complete — there's no window
+    // where a server reply could arrive with nothing listening.
+    const socket = getSocket();
+
+    setConnectionEpoch((epoch) => epoch + 1);
 
     const emitJoin = () => {
       socket.emit("join-room", {
@@ -137,6 +153,7 @@ export function useMeeting({ roomId, currentUser }: UseMeetingOptions) {
       emitJoin();
     } else {
       socket.once("connect", emitJoin);
+      connectSocket();
     }
   }, []);
 
