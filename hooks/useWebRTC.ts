@@ -170,11 +170,29 @@ export function useWebRTC({
       };
 
       connection.ontrack = (event) => {
+        // eslint-disable-next-line no-console
+        console.log(
+          "[VirtualMeet debug] ontrack fired for",
+          user.socketId,
+          "kind:",
+          event.track.kind,
+          "streams:",
+          event.streams.length
+        );
+
         const stream = event.streams[0] ?? null;
         updateRemotePeer(user.socketId, { stream });
       };
 
       connection.onconnectionstatechange = () => {
+        // eslint-disable-next-line no-console
+        console.log(
+          "[VirtualMeet debug] connectionState for",
+          user.socketId,
+          "->",
+          connection.connectionState
+        );
+
         if (
           connection.connectionState === "failed" ||
           connection.connectionState === "closed" ||
@@ -182,6 +200,16 @@ export function useWebRTC({
         ) {
           removePeer(user.socketId);
         }
+      };
+
+      connection.oniceconnectionstatechange = () => {
+        // eslint-disable-next-line no-console
+        console.log(
+          "[VirtualMeet debug] iceConnectionState for",
+          user.socketId,
+          "->",
+          connection.iceConnectionState
+        );
       };
 
       peersRef.current.set(user.socketId, { connection, user });
@@ -287,6 +315,9 @@ export function useWebRTC({
       from: string;
       offer: RTCSessionDescriptionInit;
     }) {
+      // eslint-disable-next-line no-console
+      console.log("[VirtualMeet debug] received offer from", from);
+
       // We don't have full RoomUser info for an inbound caller until
       // participant-joined/room-joined populates it via Room's roomUsers,
       // but we can still answer with a placeholder that gets reconciled
@@ -325,6 +356,9 @@ export function useWebRTC({
       from: string;
       answer: RTCSessionDescriptionInit;
     }) {
+      // eslint-disable-next-line no-console
+      console.log("[VirtualMeet debug] received answer from", from);
+
       const entry = peersRef.current.get(from);
 
       if (!entry) return;
@@ -356,6 +390,9 @@ export function useWebRTC({
       from: string;
       candidate: RTCIceCandidateInit;
     }) {
+      // eslint-disable-next-line no-console
+      console.log("[VirtualMeet debug] received ICE candidate from", from);
+
       const entry = peersRef.current.get(from);
 
       if (!entry) {
