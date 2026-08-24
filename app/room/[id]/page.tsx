@@ -12,11 +12,7 @@ import { useWebRTC } from "../../../hooks/useWebRTC";
 import { getCurrentUser } from "../../../services/auth";
 import { User } from "../../../types/user";
 
-export default function Room({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default function Room({ params }: { params: Promise<{ id: string }> }) {
   const { id: roomId } = use(params);
   const router = useRouter();
 
@@ -34,9 +30,16 @@ export default function Room({
   const [showScreenShare, setShowScreenShare] = useState(false);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
 
+  // ✅ اصلاح: اضافه کردن email و پراپرتی‌های مورد نیاز
   const currentUser: User = useMemo(
-    () => ({ id: userId, username: username || "Guest" }),
-    [userId, username]
+    () => ({
+      id: userId,
+      username: username || "Guest",
+      email: `${username || "guest"}@example.com`,
+      isMuted: !micOn,
+      isCameraOff: !cameraOn,
+    }),
+    [userId, username, micOn, cameraOn]
   );
 
   const {
@@ -63,20 +66,9 @@ export default function Room({
     if (user?.username) {
       setUsername(user.username);
     } else {
-      // No logged-in user found — fall back to a guest name so the
-      // signaling connection still happens instead of hanging forever.
       setUsername(`Guest-${userId.slice(-4)}`);
     }
 
-    // React Strict Mode (dev only) runs this effect, its cleanup, and
-    // then this effect again on mount. getUserMedia is async, so without
-    // this guard the FIRST call's promise can resolve AFTER the second
-    // call has already started/finished, silently overwriting
-    // streamRef.current with a stale stream object — meanwhile
-    // toggleCamera/toggleMic keep reading whatever streamRef.current
-    // happens to be, which no longer matches what's actually being
-    // rendered or sent to peers. This made toggling look like it did
-    // nothing, or turning the camera back on not work.
     let cancelled = false;
 
     async function startMedia() {
@@ -87,9 +79,6 @@ export default function Room({
         });
 
         if (cancelled) {
-          // This effect instance was already cleaned up before the
-          // permission prompt resolved — don't adopt this stream, just
-          // release it immediately so the camera light turns off.
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
@@ -112,8 +101,7 @@ export default function Room({
     };
   }, []);
 
-  // 2. Once we have a username, join the signaling room. We wait for
-  // localStream too so our first offer already carries our tracks.
+  // 2. Once we have a username, join the signaling room.
   useEffect(() => {
     if (!username) return;
 
@@ -126,9 +114,7 @@ export default function Room({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username]);
 
-  // 3. Call every participant that was already in the room when we joined,
-  // and any participant who joins after us. We only initiate the call from
-  // our side to avoid both peers racing to send an offer.
+  // 3. Call every participant that was already in the room when we joined.
   const calledRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -146,10 +132,6 @@ export default function Room({
     if (!track) return;
 
     if (track.readyState === "ended") {
-      // The track was stopped (hardware released) rather than merely
-      // disabled — toggling .enabled on a dead track does nothing, which
-      // is why "turn camera back on" looked like it was ignored. Recover
-      // by re-acquiring a fresh video track instead of failing silently.
       try {
         const freshStream = await navigator.mediaDevices.getUserMedia({
           video: true,
@@ -196,12 +178,6 @@ export default function Room({
     router.push("/");
   }
 
-  // The original camera video track, kept aside so we can restore it
-  // when screen-sharing stops. Screen-share is handled as a track swap
-  // on the SAME localStream object (so every peer connection's existing
-  // sender just gets a replaceTrack via the effect in useWebRTC) rather
-  // than building a new MediaStream, which was losing the camera track
-  // permanently once sharing ended.
   const cameraVideoTrackRef = useRef<MediaStreamTrack | null>(null);
 
   function handleScreenStreamChange(stream: MediaStream | null) {
@@ -221,7 +197,6 @@ export default function Room({
       if (existingVideoTrack) {
         cameraVideoTrackRef.current = existingVideoTrack;
         currentStream.removeTrack(existingVideoTrack);
-        // Don't stop it — it's the camera track, we'll need it back.
       }
 
       currentStream.addTrack(screenTrack);
@@ -248,17 +223,13 @@ export default function Room({
     }
   }
 
+  // ✅ اصلاح: تطابق کامل با تایپ VideoParticipant
   const videoParticipants = useMemo(() => {
     const self = {
-      // Always use our own stable userId as the key/id for our own tile —
-      // never selfSocketId, which starts null and only gets a value once
-      // the signaling connection completes. Switching id values makes
-      // React treat "self" as a brand new video tile (VideoGrid keys off
-      // user.id), unmounting and remounting VideoPlayer right as camera
-      // state churns, which was interacting badly with the toggle.
       user: {
         id: userId,
         username: username || "Guest",
+        email: `${username || "guest"}@example.com`,
         isCameraOff: !cameraOn,
         isMuted: !micOn,
       },
@@ -269,8 +240,9 @@ export default function Room({
       user: {
         id: peer.user.socketId,
         username: peer.user.username,
-        isCameraOff: peer.user.isCameraOff,
-        isMuted: peer.user.isMuted,
+        email: peer.user.email || `${peer.user.username}@example.com`,
+        isCameraOff: peer.user.isCameraOff ?? false,
+        isMuted: peer.user.isMuted ?? false,
       },
       stream: peer.stream,
     }));
@@ -315,7 +287,10 @@ export default function Room({
           <VideoGrid participants={videoParticipants} />
         </div>
 
-        <Participants participants={participants} currentUserId={selfSocketId ?? undefined} />
+        <Participants
+          participants={participants}
+          currentUserId={selfSocketId ?? undefined}
+        />
 
         {showScreenShare && (
           <div className="w-80">
