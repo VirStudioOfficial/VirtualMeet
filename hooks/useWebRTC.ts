@@ -52,8 +52,23 @@ export function useWebRTC({
   // Re-runs offer/answer negotiation on an existing connection after new
   // tracks were added post-hoc (see fix below). Without this, adding a
   // track after the initial connection never reaches the remote peer.
+  //
+  // Bug fix: guard against calling this while a negotiation is already
+  // in flight. RTCPeerConnection.signalingState moves to
+  // "have-local-offer" as soon as we call setLocalDescription(offer), and
+  // only returns to "stable" once an answer has actually been applied. If
+  // renegotiate() (or callPeer) fires again before that answer arrives —
+  // e.g. this effect re-running because localStream's object reference
+  // changed more than once in quick succession — we'd send a second
+  // offer on a connection that's still waiting on the first one's
+  // answer. The remote side then sends back two answers, and applying
+  // the second one throws "Called in wrong state: stable" because the
+  // connection was already back to stable by the time it arrived. Only
+  // negotiate when the connection is actually idle.
   const renegotiate = useCallback(
     async (connection: RTCPeerConnection, user: RoomUser) => {
+      if (connection.signalingState !== "stable") return;
+
       try {
         const offer = await connection.createOffer();
         await connection.setLocalDescription(offer);
@@ -228,9 +243,14 @@ export function useWebRTC({
 
   // We initiate the offer to a given peer (called by Room when a user is
   // already in the room, or joins after us).
+  //
+  // Guarded the same way as renegotiate() above: only start a new
+  // offer/answer exchange while the connection is idle ("stable").
   const callPeer = useCallback(
     async (user: RoomUser) => {
       const connection = getOrCreatePeer(user);
+
+      if (connection.signalingState !== "stable") return;
 
       try {
         const offer = await connection.createOffer();
@@ -308,6 +328,16 @@ export function useWebRTC({
       const entry = peersRef.current.get(from);
 
       if (!entry) return;
+
+      // Bug fix: an answer can arrive for an offer we're no longer
+      // waiting on (e.g. a duplicate/late answer after the connection is
+      // already back to "stable" — see the guard added in renegotiate()
+      // above, which stops the *cause* of duplicate offers, but a
+      // straggling answer already in flight when that fix lands could
+      // still show up here once). Applying an answer only makes sense
+      // while we're in "have-local-offer"; otherwise silently ignore it
+      // instead of letting setRemoteDescription throw.
+      if (entry.connection.signalingState !== "have-local-offer") return;
 
       try {
         await entry.connection.setRemoteDescription(
