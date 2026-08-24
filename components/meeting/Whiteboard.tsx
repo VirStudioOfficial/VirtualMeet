@@ -1,19 +1,17 @@
 "use client";
 
-import {
-  PointerEvent,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { PointerEvent, useEffect, useRef, useState } from "react";
 
 interface Point {
   x: number;
   y: number;
 }
 
+// ✅ اصلاح: اضافه کردن color و width به تایپ Stroke
 interface Stroke {
   points: Point[];
+  color: string;
+  width: number;
 }
 
 export default function Whiteboard() {
@@ -23,19 +21,13 @@ export default function Whiteboard() {
   const [color, setColor] = useState("#ffffff");
   const [lineWidth, setLineWidth] = useState(3);
 
-  function getPoint(
-    event: PointerEvent<HTMLCanvasElement>
-  ): Point {
+  function getPoint(event: PointerEvent<HTMLCanvasElement>): Point {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
 
     return {
-      x:
-        ((event.clientX - rect.left) / rect.width) *
-        canvas.width,
-      y:
-        ((event.clientY - rect.top) / rect.height) *
-        canvas.height,
+      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
     };
   }
 
@@ -52,12 +44,7 @@ export default function Whiteboard() {
       return;
     }
 
-    context.clearRect(
-      0,
-      0,
-      canvas.width,
-      canvas.height
-    );
+    context.clearRect(0, 0, canvas.width, canvas.height);
 
     context.lineCap = "round";
     context.lineJoin = "round";
@@ -71,10 +58,7 @@ export default function Whiteboard() {
       context.strokeStyle = stroke.color;
       context.lineWidth = stroke.width;
 
-      context.moveTo(
-        stroke.points[0].x,
-        stroke.points[0].y
-      );
+      context.moveTo(stroke.points[0].x, stroke.points[0].y);
 
       stroke.points.slice(1).forEach((point) => {
         context.lineTo(point.x, point.y);
@@ -84,12 +68,8 @@ export default function Whiteboard() {
     });
   }
 
-  function startDrawing(
-    event: PointerEvent<HTMLCanvasElement>
-  ) {
-    event.currentTarget.setPointerCapture(
-      event.pointerId
-    );
+  function startDrawing(event: PointerEvent<HTMLCanvasElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
 
     const point = getPoint(event);
 
@@ -105,9 +85,7 @@ export default function Whiteboard() {
     ]);
   }
 
-  function draw(
-    event: PointerEvent<HTMLCanvasElement>
-  ) {
+  function draw(event: PointerEvent<HTMLCanvasElement>) {
     if (!isDrawing) {
       return;
     }
@@ -156,15 +134,8 @@ export default function Whiteboard() {
       const previousWidth = canvas.width;
       const previousHeight = canvas.height;
 
-      canvas.width = Math.max(
-        Math.floor(rect.width * window.devicePixelRatio),
-        1
-      );
-
-      canvas.height = Math.max(
-        Math.floor(rect.height * window.devicePixelRatio),
-        1
-      );
+      canvas.width = Math.max(Math.floor(rect.width * window.devicePixelRatio), 1);
+      canvas.height = Math.max(Math.floor(rect.height * window.devicePixelRatio), 1);
 
       if (previousWidth && previousHeight) {
         redraw();
@@ -183,25 +154,19 @@ export default function Whiteboard() {
   return (
     <div className="overflow-hidden rounded-2xl bg-gray-900">
       <div className="flex flex-wrap items-center gap-3 border-b border-gray-800 p-3">
-        <span className="font-semibold">
-          🎨 Whiteboard
-        </span>
+        <span className="font-semibold">🎨 Whiteboard</span>
 
         <input
           type="color"
           value={color}
-          onChange={(event) =>
-            setColor(event.target.value)
-          }
+          onChange={(event) => setColor(event.target.value)}
           className="h-9 w-12 cursor-pointer rounded-lg bg-gray-800"
           title="انتخاب رنگ"
         />
 
         <select
           value={lineWidth}
-          onChange={(event) =>
-            setLineWidth(Number(event.target.value))
-          }
+          onChange={(event) => setLineWidth(Number(event.target.value))}
           className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-white outline-none"
         >
           <option value={2}>نازک</option>
