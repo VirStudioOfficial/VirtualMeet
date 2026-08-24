@@ -240,7 +240,7 @@ export default function Room({ params }: { params: Promise<{ id: string }> }) {
       user: {
         id: peer.user.socketId,
         username: peer.user.username,
-        email: peer.user.email || `${peer.user.username}@example.com`,
+        email: `${peer.user.username}@example.com`,
         isCameraOff: peer.user.isCameraOff ?? false,
         isMuted: peer.user.isMuted ?? false,
       },
