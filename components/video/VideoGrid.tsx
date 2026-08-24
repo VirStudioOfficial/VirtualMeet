@@ -1,61 +1,53 @@
 "use client";
 
 import VideoPlayer from "./VideoPlayer";
+import { User } from "../../types/user";
 
-export interface VideoParticipant {
-  id: string;
-  username: string;
+interface VideoParticipant {
+  user: User;
   stream?: MediaStream | null;
-  muted?: boolean;
-  cameraOff?: boolean;
 }
 
 interface VideoGridProps {
   participants: VideoParticipant[];
-  localUserId?: string;
 }
 
 export default function VideoGrid({
   participants,
-  localUserId,
 }: VideoGridProps) {
-
   if (participants.length === 0) {
     return (
-      <div className="flex h-full min-h-[500px] items-center justify-center rounded-2xl bg-gray-900 text-gray-500">
-        هنوز کسی وارد جلسه نشده است.
+      <div className="flex h-full min-h-[400px] items-center justify-center rounded-2xl bg-gray-900">
+        <p className="text-gray-400">
+          No participants
+        </p>
       </div>
     );
   }
 
+  const gridClass =
+    participants.length === 1
+      ? "grid-cols-1"
+      : participants.length <= 4
+        ? "grid-cols-2"
+        : participants.length <= 9
+          ? "grid-cols-3"
+          : "grid-cols-4";
 
   return (
     <div
-      className={`
-        grid gap-4
-        ${
-          participants.length === 1
-            ? "grid-cols-1"
-            : participants.length <= 4
-            ? "grid-cols-2"
-            : "grid-cols-3"
-        }
-      `}
+      className={`grid h-full min-h-[400px] w-full gap-3 ${gridClass}`}
     >
-
-      {participants.map((participant) => (
+      {participants.map(({ user, stream }) => (
         <VideoPlayer
-          key={participant.id}
-          stream={participant.stream}
-          username={participant.username}
-          muted={participant.muted}
-          cameraOff={participant.cameraOff}
-          isLocal={
-            participant.id === localUserId
-          }
+          key={user.id}
+          stream={stream}
+          username={user.username}
+          muted={user.id === participants[0]?.user.id}
+          isCameraOn={!user.isCameraOff}
+          className="min-h-[220px]"
         />
       ))}
-
     </div>
   );
 }
