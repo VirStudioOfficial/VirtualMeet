@@ -1,238 +1,373 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { use, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
-import useMeeting from "@/hooks/useMeeting";
-import useCamera from "@/hooks/useCamera";
+import VideoGrid from "../../../components/video/VideoGrid";
+import Participants from "../../../components/meeting/Participants";
+import ChatBox from "../../../components/chat/ChatBox";
+import ScreenShare from "../../../components/meeting/ScreenShare";
+import { useMeeting } from "../../../hooks/useMeeting";
+import { useWebRTC } from "../../../hooks/useWebRTC";
+import { getCurrentUser } from "../../../services/auth";
+import { User } from "../../../types/user";
 
-import VideoGrid, {
-  VideoParticipant,
-} from "@/components/video/VideoGrid";
+export default function Room({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id: roomId } = use(params);
+  const router = useRouter();
 
-import MeetingControls from "@/components/meeting/MeetingControls";
-import Participants from "@/components/meeting/Participants";
+  const streamRef = useRef<MediaStream | null>(null);
 
-import ChatBox, {
-  ChatMessage,
-} from "@/components/chat/ChatBox";
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [username, setUsername] = useState("");
+  const [userId] = useState(
+    () => `guest-${Math.random().toString(36).slice(2, 10)}`
+  );
+  const [cameraOn, setCameraOn] = useState(true);
+  const [micOn, setMicOn] = useState(true);
+  const [mediaError, setMediaError] = useState("");
+  const [showChat, setShowChat] = useState(false);
+  const [showScreenShare, setShowScreenShare] = useState(false);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
 
-export default function RoomPage() {
-  const params = useParams();
-
-  const roomId = params.id as string;
+  const currentUser: User = useMemo(
+    () => ({ id: userId, username: username || "Guest" }),
+    [userId, username]
+  );
 
   const {
-    meeting,
-    user,
-    loading,
+    participants,
+    roomUsers,
+    messages,
+    isConnected,
+    selfSocketId,
     joinMeeting,
     leaveMeeting,
-  } = useMeeting(roomId);
+    sendMessage,
+    updateStatus,
+  } = useMeeting({ roomId, currentUser });
 
+  const { remotePeers, callPeer, closeAllPeers } = useWebRTC({
+    localStream,
+    selfSocketId,
+  });
 
-  const {
-    stream,
-    cameraOff,
-    muted,
-    startCamera,
-    stopCamera,
-    toggleCamera,
-    toggleMicrophone,
-  } = useCamera();
-
-
-  const [participants, setParticipants] =
-    useState<VideoParticipant[]>([]);
-
-
-  const [messages, setMessages] =
-    useState<ChatMessage[]>([]);
-
-
+  // 1. Grab local camera/mic on mount.
   useEffect(() => {
-    async function initializeRoom() {
-      if (!loading && meeting && user) {
-        joinMeeting();
+    const user = getCurrentUser();
 
-        const cameraStream =
-          await startCamera();
+    if (user?.username) {
+      setUsername(user.username);
+    } else {
+      // No logged-in user found — fall back to a guest name so the
+      // signaling connection still happens instead of hanging forever.
+      setUsername(`Guest-${userId.slice(-4)}`);
+    }
 
+    // React Strict Mode (dev only) runs this effect, its cleanup, and
+    // then this effect again on mount. getUserMedia is async, so without
+    // this guard the FIRST call's promise can resolve AFTER the second
+    // call has already started/finished, silently overwriting
+    // streamRef.current with a stale stream object — meanwhile
+    // toggleCamera/toggleMic keep reading whatever streamRef.current
+    // happens to be, which no longer matches what's actually being
+    // rendered or sent to peers. This made toggling look like it did
+    // nothing, or turning the camera back on not work.
+    let cancelled = false;
 
-        setParticipants([
-          {
-            id: user.id,
-            username: user.username,
-            stream: cameraStream,
-            muted,
-            cameraOff,
-          },
-        ]);
+    async function startMedia() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+
+        if (cancelled) {
+          // This effect instance was already cleaned up before the
+          // permission prompt resolved — don't adopt this stream, just
+          // release it immediately so the camera light turns off.
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        setLocalStream(stream);
+      } catch {
+        if (!cancelled) {
+          setMediaError("دسترسی به دوربین یا میکروفون امکان‌پذیر نیست.");
+        }
       }
     }
 
+    startMedia();
 
-    initializeRoom();
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    };
+  }, []);
 
-  }, [
-    loading,
-    meeting,
-    user,
-  ]);
+  // 2. Once we have a username, join the signaling room. We wait for
+  // localStream too so our first offer already carries our tracks.
+  useEffect(() => {
+    if (!username) return;
 
+    joinMeeting();
 
-  function handleLeave() {
-    stopCamera();
+    return () => {
+      leaveMeeting();
+      closeAllPeers();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username]);
 
-    leaveMeeting();
+  // 3. Call every participant that was already in the room when we joined,
+  // and any participant who joins after us. We only initiate the call from
+  // our side to avoid both peers racing to send an offer.
+  const calledRef = useRef<Set<string>>(new Set());
 
-    window.location.href = "/";
-  }
+  useEffect(() => {
+    roomUsers.forEach((user) => {
+      if (!calledRef.current.has(user.socketId)) {
+        calledRef.current.add(user.socketId);
+        callPeer(user);
+      }
+    });
+  }, [roomUsers, callPeer]);
 
+  async function toggleCamera() {
+    const track = streamRef.current?.getVideoTracks()[0];
 
-  function handleEndMeeting() {
-    stopCamera();
+    if (!track) return;
 
-    window.location.href = "/";
-  }
+    if (track.readyState === "ended") {
+      // The track was stopped (hardware released) rather than merely
+      // disabled — toggling .enabled on a dead track does nothing, which
+      // is why "turn camera back on" looked like it was ignored. Recover
+      // by re-acquiring a fresh video track instead of failing silently.
+      try {
+        const freshStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
+        const freshTrack = freshStream.getVideoTracks()[0];
 
+        if (!freshTrack || !streamRef.current) return;
 
-  function sendMessage(
-    text: string
-  ) {
-    if (!user) {
+        streamRef.current.getVideoTracks().forEach((t) => {
+          streamRef.current?.removeTrack(t);
+        });
+        streamRef.current.addTrack(freshTrack);
+        setLocalStream(new MediaStream(streamRef.current.getTracks()));
+        setCameraOn(true);
+        updateStatus({ isCameraOff: false });
+      } catch {
+        setMediaError("دسترسی به دوربین امکان‌پذیر نیست.");
+      }
       return;
     }
 
+    track.enabled = !track.enabled;
+    setCameraOn(track.enabled);
+    updateStatus({ isCameraOff: !track.enabled });
+  }
 
-    const newMessage: ChatMessage = {
-      id: crypto.randomUUID(),
-      userId: user.id,
-      username: user.username,
-      message: text,
-      timestamp:
-        new Date().toISOString(),
+  function toggleMic() {
+    const track = streamRef.current?.getAudioTracks()[0];
+
+    if (!track) return;
+
+    track.enabled = !track.enabled;
+    setMicOn(track.enabled);
+    updateStatus({ isMuted: !track.enabled });
+  }
+
+  function leaveRoom() {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+
+    leaveMeeting();
+    closeAllPeers();
+
+    router.push("/");
+  }
+
+  // The original camera video track, kept aside so we can restore it
+  // when screen-sharing stops. Screen-share is handled as a track swap
+  // on the SAME localStream object (so every peer connection's existing
+  // sender just gets a replaceTrack via the effect in useWebRTC) rather
+  // than building a new MediaStream, which was losing the camera track
+  // permanently once sharing ended.
+  const cameraVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+
+  function handleScreenStreamChange(stream: MediaStream | null) {
+    setScreenStream(stream);
+
+    const currentStream = streamRef.current;
+
+    if (!currentStream) return;
+
+    if (stream) {
+      const screenTrack = stream.getVideoTracks()[0];
+
+      if (!screenTrack) return;
+
+      const existingVideoTrack = currentStream.getVideoTracks()[0];
+
+      if (existingVideoTrack) {
+        cameraVideoTrackRef.current = existingVideoTrack;
+        currentStream.removeTrack(existingVideoTrack);
+        // Don't stop it — it's the camera track, we'll need it back.
+      }
+
+      currentStream.addTrack(screenTrack);
+      setLocalStream(new MediaStream(currentStream.getTracks()));
+
+      screenTrack.onended = () => {
+        handleScreenStreamChange(null);
+      };
+    } else {
+      currentStream.getVideoTracks().forEach((t) => {
+        currentStream.removeTrack(t);
+        t.stop();
+      });
+
+      const cameraTrack = cameraVideoTrackRef.current;
+
+      if (cameraTrack && cameraTrack.readyState === "live") {
+        currentStream.addTrack(cameraTrack);
+      }
+
+      cameraVideoTrackRef.current = null;
+
+      setLocalStream(new MediaStream(currentStream.getTracks()));
+    }
+  }
+
+  const videoParticipants = useMemo(() => {
+    const self = {
+      // Always use our own stable userId as the key/id for our own tile —
+      // never selfSocketId, which starts null and only gets a value once
+      // the signaling connection completes. Switching id values makes
+      // React treat "self" as a brand new video tile (VideoGrid keys off
+      // user.id), unmounting and remounting VideoPlayer right as camera
+      // state churns, which was interacting badly with the toggle.
+      user: {
+        id: userId,
+        username: username || "Guest",
+        isCameraOff: !cameraOn,
+        isMuted: !micOn,
+      },
+      stream: localStream,
     };
 
+    const others = Array.from(remotePeers.values()).map((peer) => ({
+      user: {
+        id: peer.user.socketId,
+        username: peer.user.username,
+        isCameraOff: peer.user.isCameraOff,
+        isMuted: peer.user.isMuted,
+      },
+      stream: peer.stream,
+    }));
 
-    setMessages((current) => [
-      ...current,
-      newMessage,
-    ]);
-  }
-
-
-  if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-black text-white">
-        در حال بارگذاری جلسه...
-      </main>
-    );
-  }
-
-
-  if (!meeting || !user) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-black text-white">
-        جلسه پیدا نشد.
-      </main>
-    );
-  }
-
+    return [self, ...others];
+  }, [userId, username, cameraOn, micOn, localStream, remotePeers]);
 
   return (
-    <main className="min-h-screen bg-black p-4 text-white">
+    <main className="h-screen bg-black text-white p-6 flex flex-col">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h1 className="text-3xl font-bold">Virtual Meet</h1>
 
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold">
-          {meeting.title}
-        </h1>
-
-        <p className="text-sm text-gray-500">
-          Room ID: {meeting.roomId}
-        </p>
-      </div>
-
-
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-
-
-        <div className="space-y-4">
-
-
-          <div className="min-h-[500px]">
-            <VideoGrid
-              participants={participants}
-              localUserId={user.id}
-            />
-          </div>
-
-
-          <div className="flex justify-center gap-3">
-
-            <button
-              onClick={toggleMicrophone}
-              className="rounded-xl bg-gray-800 px-5 py-3"
-            >
-              {muted
-                ? "🎤 روشن کردن Mic"
-                : "🔇 خاموش کردن Mic"}
-            </button>
-
-
-            <button
-              onClick={toggleCamera}
-              className="rounded-xl bg-gray-800 px-5 py-3"
-            >
-              {cameraOff
-                ? "📷 روشن کردن Camera"
-                : "🎥 خاموش کردن Camera"}
-            </button>
-
-          </div>
-
-
-          <MeetingControls
-            onLeave={handleLeave}
-            onEndMeeting={handleEndMeeting}
-            isHost={
-              meeting.hostId === user.id
-            }
-          />
-
+          <p className="text-gray-400">
+            Room: {roomId} {isConnected ? "🟢" : "🟡 در حال اتصال..."}
+          </p>
         </div>
 
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowChat((v) => !v)}
+            className="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-sm font-medium"
+          >
+            💬 چت
+          </button>
 
+          <div className="text-gray-300">👤 {username || "Guest"}</div>
+        </div>
+      </div>
 
-        <div className="space-y-4">
+      {/* Error */}
+      {mediaError && (
+        <div className="bg-red-900/50 border border-red-500 rounded-xl p-3 mb-4 text-center">
+          {mediaError}
+        </div>
+      )}
 
-          <Participants
-            participants={
-              participants.map((item) => ({
-                id: item.id,
-                username: item.username,
-                isMuted: item.muted,
-                isCameraOff:
-                  item.cameraOff,
-                isHost:
-                  item.id === meeting.hostId,
-              }))
-            }
-            currentUserId={user.id}
-          />
+      {/* Meeting Area */}
+      <div className="flex flex-1 gap-4 min-h-0">
+        <div className="flex-1 min-h-0">
+          <VideoGrid participants={videoParticipants} />
+        </div>
 
+        <Participants participants={participants} currentUserId={selfSocketId ?? undefined} />
 
+        {showScreenShare && (
+          <div className="w-80">
+            <ScreenShare onStreamChange={handleScreenStreamChange} />
+          </div>
+        )}
+
+        {showChat && (
           <ChatBox
             messages={messages}
-            currentUserId={user.id}
+            currentUserId={userId}
             onSendMessage={sendMessage}
           />
-
-        </div>
-
-
+        )}
       </div>
 
+      {/* Controls */}
+      <div className="flex justify-center items-center gap-3 mt-4">
+        <button
+          onClick={toggleMic}
+          className={`px-6 py-3 rounded-xl font-medium ${
+            micOn ? "bg-white text-black" : "bg-red-600 text-white"
+          }`}
+        >
+          {micOn ? "🎤 Mic On" : "🔇 Mic Off"}
+        </button>
+
+        <button
+          onClick={toggleCamera}
+          className={`px-6 py-3 rounded-xl font-medium ${
+            cameraOn ? "bg-white text-black" : "bg-red-600 text-white"
+          }`}
+        >
+          {cameraOn ? "📷 Camera On" : "🚫 Camera Off"}
+        </button>
+
+        <button
+          onClick={() => setShowScreenShare((v) => !v)}
+          className={`px-6 py-3 rounded-xl font-medium ${
+            screenStream ? "bg-blue-600 text-white" : "bg-white text-black"
+          }`}
+        >
+          🖥️ Share Screen
+        </button>
+
+        <button
+          onClick={leaveRoom}
+          className="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-medium"
+        >
+          خروج
+        </button>
+      </div>
     </main>
   );
 }
