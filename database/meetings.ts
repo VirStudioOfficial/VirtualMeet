@@ -14,7 +14,16 @@ function getMeetings(): Meeting[] {
   }
 
   try {
-    return JSON.parse(stored) as Meeting[];
+    const parsed = JSON.parse(stored) as Array<
+      Omit<Meeting, "createdAt"> & {
+        createdAt: string;
+      }
+    >;
+
+    return parsed.map((meeting) => ({
+      ...meeting,
+      createdAt: new Date(meeting.createdAt),
+    }));
   } catch {
     return [];
   }
@@ -40,7 +49,9 @@ export function getMeetingById(
 ): Meeting | null {
   return (
     getMeetings().find(
-      (meeting) => meeting.id === id
+      (meeting) =>
+        meeting.id === id ||
+        meeting.roomId === id
     ) ?? null
   );
 }
@@ -49,6 +60,16 @@ export function createMeeting(
   meeting: Meeting
 ): Meeting {
   const meetings = getMeetings();
+
+  const existing = meetings.find(
+    (item) =>
+      item.id === meeting.id ||
+      item.roomId === meeting.roomId
+  );
+
+  if (existing) {
+    return existing;
+  }
 
   meetings.push(meeting);
   saveMeetings(meetings);
@@ -63,7 +84,9 @@ export function updateMeeting(
   const meetings = getMeetings();
 
   const index = meetings.findIndex(
-    (meeting) => meeting.id === id
+    (meeting) =>
+      meeting.id === id ||
+      meeting.roomId === id
   );
 
   if (index === -1) {
@@ -84,7 +107,9 @@ export function deleteMeeting(id: string): boolean {
   const meetings = getMeetings();
 
   const filtered = meetings.filter(
-    (meeting) => meeting.id !== id
+    (meeting) =>
+      meeting.id !== id &&
+      meeting.roomId !== id
   );
 
   if (filtered.length === meetings.length) {
@@ -110,7 +135,7 @@ export function addParticipant(
     meeting.participants.push(userId);
   }
 
-  return updateMeeting(meetingId, {
+  return updateMeeting(meeting.id, {
     participants: meeting.participants,
   });
 }
@@ -129,7 +154,7 @@ export function removeParticipant(
     (id) => id !== userId
   );
 
-  return updateMeeting(meetingId, {
+  return updateMeeting(meeting.id, {
     participants,
   });
 }
