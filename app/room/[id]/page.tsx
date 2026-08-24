@@ -1,335 +1,186 @@
 "use client";
 
-import { use, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 
-import VideoGrid from "../../../components/video/VideoGrid";
-import Participants from "../../../components/meeting/Participants";
-import ChatBox from "../../../components/chat/ChatBox";
-import ScreenShare from "../../../components/meeting/ScreenShare";
-import { useMeeting } from "../../../hooks/useMeeting";
-import { useWebRTC } from "../../../hooks/useWebRTC";
-import { getCurrentUser } from "../../../services/auth";
-import { User } from "../../../types/user";
+import useMeeting from "@/hooks/useMeeting";
 
-export default function Room({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id: roomId } = use(params);
-  const router = useRouter();
+import VideoGrid, {
+  VideoParticipant,
+} from "@/components/video/VideoGrid";
 
-  const streamRef = useRef<MediaStream | null>(null);
+import MeetingControls from "@/components/meeting/MeetingControls";
+import Participants from "@/components/meeting/Participants";
+import ChatBox, {
+  ChatMessage,
+} from "@/components/chat/ChatBox";
 
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [username, setUsername] = useState("");
-  const [userId] = useState(
-    () => `guest-${Math.random().toString(36).slice(2, 10)}`
-  );
-  const [cameraOn, setCameraOn] = useState(true);
-  const [micOn, setMicOn] = useState(true);
-  const [mediaError, setMediaError] = useState("");
-  const [showChat, setShowChat] = useState(false);
-  const [showScreenShare, setShowScreenShare] = useState(false);
-  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+import {
+  getCurrentUser,
+} from "@/services/auth";
 
-  const currentUser: User = useMemo(
-    () => ({ id: userId, username: username || "Guest" }),
-    [userId, username]
-  );
+export default function RoomPage() {
+  const params = useParams();
+
+  const roomId =
+    params.id as string;
 
   const {
-    participants,
-    roomUsers,
-    messages,
-    isConnected,
-    selfSocketId,
+    meeting,
+    user,
+    loading,
     joinMeeting,
     leaveMeeting,
-    sendMessage,
-    updateStatus,
-  } = useMeeting({ roomId, currentUser });
+  } = useMeeting(roomId);
 
-  const { remotePeers, callPeer, closeAllPeers } = useWebRTC({
-    localStream,
-    selfSocketId,
-  });
 
-  // 1. دریافت صدا و تصویر محلی
+  const [participants, setParticipants] =
+    useState<VideoParticipant[]>([]);
+
+  const [messages, setMessages] =
+    useState<ChatMessage[]>([]);
+
+
   useEffect(() => {
-    const user = getCurrentUser();
+    if (!loading && meeting && user) {
+      joinMeeting();
 
-    if (user?.username) {
-      setUsername(user.username);
-    } else {
-      setUsername(`Guest-${userId.slice(-4)}`);
+      setParticipants([
+        {
+          id: user.id,
+          username: user.username,
+          stream: null,
+          muted: user.isMuted,
+          cameraOff: user.isCameraOff,
+        },
+      ]);
     }
+  }, [
+    loading,
+    meeting,
+    user,
+    joinMeeting,
+  ]);
 
-    let cancelled = false;
 
-    async function startMedia() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
+  function handleLeave() {
+    leaveMeeting();
 
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
+    window.location.href = "/";
+  }
 
-        streamRef.current = stream;
-        setLocalStream(stream);
-      } catch {
-        if (!cancelled) {
-          setMediaError("دسترسی به دوربین یا میکروفون امکان‌پذیر نیست.");
-        }
-      }
-    }
 
-    startMedia();
+  function handleEndMeeting() {
+    window.location.href = "/";
+  }
 
-    return () => {
-      cancelled = true;
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    };
-  }, [userId]);
 
-  // 2. جوین شدن به روم سیگنالینگ
-  useEffect(() => {
-    if (!username) return;
-
-    joinMeeting();
-
-    return () => {
-      leaveMeeting();
-      closeAllPeers();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [username]);
-
-  // 3. کال زدن با دیگران
-  const calledRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    roomUsers.forEach((user) => {
-      if (!calledRef.current.has(user.socketId)) {
-        calledRef.current.add(user.socketId);
-        callPeer(user);
-      }
-    });
-  }, [roomUsers, callPeer]);
-
-  async function toggleCamera() {
-    const track = streamRef.current?.getVideoTracks()[0];
-
-    if (!track) return;
-
-    if (track.readyState === "ended") {
-      try {
-        const freshStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-        });
-        const freshTrack = freshStream.getVideoTracks()[0];
-
-        if (!freshTrack || !streamRef.current) return;
-
-        streamRef.current.getVideoTracks().forEach((t) => {
-          streamRef.current?.removeTrack(t);
-        });
-        streamRef.current.addTrack(freshTrack);
-        setLocalStream(new MediaStream(streamRef.current.getTracks()));
-        setCameraOn(true);
-        updateStatus({ isCameraOff: false });
-      } catch {
-        setMediaError("دسترسی به دوربین امکان‌پذیر نیست.");
-      }
+  function sendMessage(
+    text: string
+  ) {
+    if (!user) {
       return;
     }
 
-    track.enabled = !track.enabled;
-    setCameraOn(track.enabled);
-    updateStatus({ isCameraOff: !track.enabled });
-  }
-
-  function toggleMic() {
-    const track = streamRef.current?.getAudioTracks()[0];
-
-    if (!track) return;
-
-    track.enabled = !track.enabled;
-    setMicOn(track.enabled);
-    updateStatus({ isMuted: !track.enabled });
-  }
-
-  function leaveRoom() {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-
-    leaveMeeting();
-    closeAllPeers();
-
-    router.push("/");
-  }
-
-  const cameraVideoTrackRef = useRef<MediaStreamTrack | null>(null);
-
-  function handleScreenStreamChange(stream: MediaStream | null) {
-    setScreenStream(stream);
-
-    const currentStream = streamRef.current;
-    if (!currentStream) return;
-
-    if (stream) {
-      const screenTrack = stream.getVideoTracks()[0];
-      if (!screenTrack) return;
-
-      const existingVideoTrack = currentStream.getVideoTracks()[0];
-
-      if (existingVideoTrack) {
-        cameraVideoTrackRef.current = existingVideoTrack;
-        currentStream.removeTrack(existingVideoTrack);
-      }
-
-      currentStream.addTrack(screenTrack);
-      setLocalStream(new MediaStream(currentStream.getTracks()));
-
-      screenTrack.onended = () => {
-        handleScreenStreamChange(null);
-      };
-    } else {
-      currentStream.getVideoTracks().forEach((t) => {
-        currentStream.removeTrack(t);
-        t.stop();
-      });
-
-      const cameraTrack = cameraVideoTrackRef.current;
-
-      if (cameraTrack && cameraTrack.readyState === "live") {
-        currentStream.addTrack(cameraTrack);
-      }
-
-      cameraVideoTrackRef.current = null;
-      setLocalStream(new MediaStream(currentStream.getTracks()));
-    }
-  }
-
-  const videoParticipants = useMemo(() => {
-    const self = {
-      user: {
-        id: userId,
-        username: username || "Guest",
-        isCameraOff: !cameraOn,
-        isMuted: !micOn,
-      },
-      stream: localStream,
+    const newMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      userId: user.id,
+      username: user.username,
+      message: text,
+      timestamp:
+        new Date().toISOString(),
     };
 
-    const others = Array.from(remotePeers.values()).map((peer) => ({
-      user: {
-        id: peer.user.socketId,
-        username: peer.user.username,
-        isCameraOff: peer.user.isCameraOff,
-        isMuted: peer.user.isMuted,
-      },
-      stream: peer.stream,
-    }));
+    setMessages((current) => [
+      ...current,
+      newMessage,
+    ]);
+  }
 
-    return [self, ...others];
-  }, [userId, username, cameraOn, micOn, localStream, remotePeers]);
+
+  if (loading) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-black text-white">
+        در حال بارگذاری جلسه...
+      </main>
+    );
+  }
+
+
+  if (!meeting || !user) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-black text-white">
+        جلسه پیدا نشد.
+      </main>
+    );
+  }
+
 
   return (
-    <main className="h-screen bg-black text-white p-6 flex flex-col">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-4">
-        <div>
-          <h1 className="text-3xl font-bold">Virtual Meet</h1>
-          <p className="text-gray-400">
-            Room: {roomId} {isConnected ? "🟢" : "🟡 در حال اتصال..."}
-          </p>
-        </div>
+    <main className="min-h-screen bg-black p-4 text-white">
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setShowChat((v) => !v)}
-            className="bg-gray-800 hover:bg-gray-700 px-4 py-2 rounded-xl text-sm font-medium"
-          >
-            💬 چت
-          </button>
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold">
+          {meeting.title}
+        </h1>
 
-          <div className="text-gray-300">👤 {username || "Guest"}</div>
-        </div>
+        <p className="text-sm text-gray-500">
+          Room ID: {meeting.roomId}
+        </p>
       </div>
 
-      {/* Error */}
-      {mediaError && (
-        <div className="bg-red-900/50 border border-red-500 rounded-xl p-3 mb-4 text-center">
-          {mediaError}
-        </div>
-      )}
 
-      {/* Meeting Area */}
-      <div className="flex flex-1 gap-4 min-h-0">
-        <div className="flex-1 min-h-0">
-          <VideoGrid participants={videoParticipants} />
-        </div>
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
 
-        <Participants participants={participants} currentUserId={selfSocketId ?? undefined} />
+        <div className="space-y-4">
 
-        {showScreenShare && (
-          <div className="w-80">
-            <ScreenShare onStreamChange={handleScreenStreamChange} />
+          <div className="min-h-[500px]">
+            <VideoGrid
+              participants={participants}
+              localUserId={user.id}
+            />
           </div>
-        )}
 
-        {showChat && (
+
+          <MeetingControls
+            onLeave={handleLeave}
+            onEndMeeting={handleEndMeeting}
+            isHost={
+              meeting.hostId === user.id
+            }
+          />
+
+        </div>
+
+
+        <div className="space-y-4">
+
+          <Participants
+            participants={
+              participants.map((item) => ({
+                id: item.id,
+                username: item.username,
+                isMuted: item.muted,
+                isCameraOff:
+                  item.cameraOff,
+                isHost:
+                  item.id === meeting.hostId,
+              }))
+            }
+            currentUserId={user.id}
+          />
+
+
           <ChatBox
             messages={messages}
-            currentUserId={userId}
+            currentUserId={user.id}
             onSendMessage={sendMessage}
           />
-        )}
+
+        </div>
+
       </div>
 
-      {/* Controls */}
-      <div className="flex justify-center items-center gap-3 mt-4">
-        <button
-          onClick={toggleMic}
-          className={`px-6 py-3 rounded-xl font-medium ${
-            micOn ? "bg-white text-black" : "bg-red-600 text-white"
-          }`}
-        >
-          {micOn ? "🎤 Mic On" : "🔇 Mic Off"}
-        </button>
-
-        <button
-          onClick={toggleCamera}
-          className={`px-6 py-3 rounded-xl font-medium ${
-            cameraOn ? "bg-white text-black" : "bg-red-600 text-white"
-          }`}
-        >
-          {cameraOn ? "📷 Camera On" : "🚫 Camera Off"}
-        </button>
-
-        <button
-          onClick={() => setShowScreenShare((v) => !v)}
-          className={`px-6 py-3 rounded-xl font-medium ${
-            screenStream ? "bg-blue-600 text-white" : "bg-white text-black"
-          }`}
-        >
-          🖥️ Share Screen
-        </button>
-
-        <button
-          onClick={leaveRoom}
-          className="bg-red-600 hover:bg-red-700 px-6 py-3 rounded-xl font-medium"
-        >
-          خروج
-        </button>
-      </div>
     </main>
   );
 }
