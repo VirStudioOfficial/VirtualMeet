@@ -7,7 +7,7 @@ import { Server, Socket } from "socket.io";
 import { ChatMessagePayload, RoomUser } from "./types.js";
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
-const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "http://localhost:3000";
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 
 const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));
@@ -24,7 +24,6 @@ const io = new Server(httpServer, {
   },
 });
 
-// roomId -> Map<socketId, RoomUser>
 const rooms = new Map<string, Map<string, RoomUser>>();
 
 function getOrCreateRoom(roomId: string): Map<string, RoomUser> {
@@ -71,7 +70,6 @@ io.on("connection", (socket: Socket) => {
       socket.join(roomId);
       currentRoomId = roomId;
 
-      // Tell the newcomer who is already here
       socket.emit("room-joined", {
         self: roomUser,
         participants: participantsOf(roomId).filter(
@@ -79,14 +77,9 @@ io.on("connection", (socket: Socket) => {
         ),
       });
 
-      // Tell everyone else a new participant joined
       socket.to(roomId).emit("participant-joined", roomUser);
     }
   );
-
-  // --- WebRTC signaling relay (offer / answer / ICE candidates) ---
-  // These are relayed 1:1 between two socket IDs; the server never inspects
-  // the SDP/ICE payloads, it just routes them to the right peer.
 
   socket.on(
     "webrtc-offer",
@@ -118,8 +111,6 @@ io.on("connection", (socket: Socket) => {
     }
   );
 
-  // --- Presence updates (mute / camera toggle) ---
-
   socket.on(
     "update-status",
     (payload: { isMuted?: boolean; isCameraOff?: boolean }) => {
@@ -142,15 +133,10 @@ io.on("connection", (socket: Socket) => {
     }
   );
 
-  // --- Chat ---
-
   socket.on("chat-message", (message: ChatMessagePayload) => {
     if (!currentRoomId) return;
-
     io.to(currentRoomId).emit("chat-message", message);
   });
-
-  // --- Leave / disconnect ---
 
   function leaveCurrentRoom() {
     if (!currentRoomId) return;
@@ -163,7 +149,6 @@ io.on("connection", (socket: Socket) => {
     if (room && room.size === 0) {
       rooms.delete(currentRoomId);
     } else if (room) {
-      // If the host left, promote the next participant
       const stillHasHost = Array.from(room.values()).some((p) => p.isHost);
 
       if (!stillHasHost) {
