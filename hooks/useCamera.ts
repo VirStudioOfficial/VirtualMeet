@@ -1,102 +1,130 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+} from "react";
 
-export function useCamera() {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+export default function useCamera() {
+  const [stream, setStream] =
+    useState<MediaStream | null>(null);
 
-  const [isCameraOn, setIsCameraOn] = useState(false);
-  const [error, setError] = useState("");
+  const [cameraOff, setCameraOff] =
+    useState(false);
 
-  const startCamera = useCallback(async () => {
-    try {
-      setError("");
+  const [muted, setMuted] =
+    useState(false);
 
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setError("دسترسی به دوربین در این مرورگر وجود ندارد.");
-        return false;
+  const [error, setError] =
+    useState<string | null>(null);
+
+
+  const startCamera =
+    useCallback(async () => {
+      try {
+        setError(null);
+
+        const mediaStream =
+          await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true,
+          });
+
+        setStream(mediaStream);
+        setCameraOff(false);
+        setMuted(false);
+
+        return mediaStream;
+
+      } catch (err) {
+        setError(
+          "دسترسی به دوربین یا میکروفون امکان‌پذیر نیست."
+        );
+
+        return null;
+      }
+    }, []);
+
+
+  const toggleCamera =
+    useCallback(() => {
+      if (!stream) {
+        return;
       }
 
-      if (streamRef.current) {
-        return true;
-      }
+      const nextState = !cameraOff;
 
-      const stream =
-        await navigator.mediaDevices.getUserMedia({
-          video: true,
+      stream
+        .getVideoTracks()
+        .forEach((track) => {
+          track.enabled = !nextState;
         });
 
-      streamRef.current = stream;
+      setCameraOff(nextState);
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
+    }, [stream, cameraOff]);
+
+
+  const toggleMicrophone =
+    useCallback(() => {
+      if (!stream) {
+        return;
       }
 
-      setIsCameraOn(true);
+      const nextState = !muted;
 
-      return true;
-    } catch {
-      setIsCameraOn(false);
-      setError("دسترسی به دوربین امکان‌پذیر نیست.");
-      return false;
-    }
-  }, []);
+      stream
+        .getAudioTracks()
+        .forEach((track) => {
+          track.enabled = !nextState;
+        });
 
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current
+      setMuted(nextState);
+
+    }, [stream, muted]);
+
+
+  const stopCamera =
+    useCallback(() => {
+      if (!stream) {
+        return;
+      }
+
+      stream
         .getTracks()
-        .forEach((track) => track.stop());
+        .forEach((track) =>
+          track.stop()
+        );
 
-      streamRef.current = null;
-    }
+      setStream(null);
+      setCameraOff(false);
+      setMuted(false);
 
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
+    }, [stream]);
 
-    setIsCameraOn(false);
-  }, []);
-
-  const toggleCamera = useCallback(async () => {
-    if (!streamRef.current) {
-      return startCamera();
-    }
-
-    const videoTrack =
-      streamRef.current.getVideoTracks()[0];
-
-    if (!videoTrack) {
-      return startCamera();
-    }
-
-    const nextState = !videoTrack.enabled;
-
-    videoTrack.enabled = nextState;
-    setIsCameraOn(nextState);
-
-    return nextState;
-  }, [startCamera]);
 
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current
+      if (stream) {
+        stream
           .getTracks()
-          .forEach((track) => track.stop());
+          .forEach((track) =>
+            track.stop()
+          );
       }
     };
-  }, []);
+  }, [stream]);
+
 
   return {
-    videoRef,
-    stream: streamRef.current,
-    isCameraOn,
+    stream,
+    cameraOff,
+    muted,
     error,
     startCamera,
     stopCamera,
     toggleCamera,
+    toggleMicrophone,
   };
 }
