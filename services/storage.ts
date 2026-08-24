@@ -1,54 +1,81 @@
-const PREFIX = "virtual-meet:";
+"use client";
 
-function getKey(key: string) {
-  return `${PREFIX}${key}`;
-}
+export const storage = {
+  set<T>(key: string, value: T): void {
+    if (typeof window === "undefined") {
+      return;
+    }
 
-export function setItem<T>(key: string, value: T): void {
-  if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(
+        key,
+        JSON.stringify(value)
+      );
+    } catch (error) {
+      console.error(
+        "Storage save error:",
+        error
+      );
+    }
+  },
 
-  localStorage.setItem(
-    getKey(key),
-    JSON.stringify(value)
-  );
-}
+  get<T>(key: string): T | null {
+    if (typeof window === "undefined") {
+      return null;
+    }
 
-export function getItem<T>(key: string): T | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
+    try {
+      const item = localStorage.getItem(key);
 
-  const value = localStorage.getItem(getKey(key));
+      if (!item) {
+        return null;
+      }
 
-  if (!value) {
-    return null;
-  }
+      return JSON.parse(item) as T;
+    } catch (error) {
+      console.error(
+        "Storage read error:",
+        error
+      );
 
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
-}
+      return null;
+    }
+  },
 
-export function removeItem(key: string): void {
-  if (typeof window === "undefined") return;
+  remove(key: string): void {
+    if (typeof window === "undefined") {
+      return;
+    }
 
-  localStorage.removeItem(getKey(key));
-}
+    localStorage.removeItem(key);
+  },
 
-export function clearStorage(): void {
-  if (typeof window === "undefined") return;
+  clear(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
 
-  Object.keys(localStorage)
-    .filter((key) => key.startsWith(PREFIX))
-    .forEach((key) => localStorage.removeItem(key));
-}
+    localStorage.clear();
+  },
 
-export function hasItem(key: string): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
+  exists(key: string): boolean {
+    if (typeof window === "undefined") {
+      return false;
+    }
 
-  return localStorage.getItem(getKey(key)) !== null;
-}
+    return localStorage.getItem(key) !== null;
+  },
+
+  update<T>(
+    key: string,
+    updater: (value: T | null) => T
+  ): T | null {
+    const current = this.get<T>(key);
+
+    const updated = updater(current);
+
+    this.set(key, updated);
+
+    return updated;
+  },
+};
