@@ -107,7 +107,12 @@ export function useMeeting({ roomId, currentUser }: UseMeetingOptions) {
       });
     }
 
-    function handleDisconnect() {
+    function handleDisconnect(reason: string) {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[VirtualMeet debug] socket disconnected, reason:",
+        reason
+      );
       setIsConnected(false);
     }
 
@@ -172,7 +177,14 @@ export function useMeeting({ roomId, currentUser }: UseMeetingOptions) {
     // to connectionEpoch/selfSocketId already) picks up the new identity
     // and re-establishes peer connections correctly instead of limping
     // along on a stale one.
-    socket.on("connect", emitJoin);
+    socket.on("connect", () => {
+      // eslint-disable-next-line no-console
+      console.log(
+        "[VirtualMeet debug] socket connected, id:",
+        socket.id
+      );
+      emitJoin();
+    });
   }, []);
 
   const leaveMeeting = useCallback(() => {
