@@ -32,6 +32,19 @@ export function useWebRTC({
   const peersRef = useRef<Map<string, PeerEntry>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(localStream);
 
+  // ICE candidates from a peer can arrive before we've created our
+  // RTCPeerConnection for them (e.g. their candidates race ahead of our
+  // own offer/answer handling). Previously any candidate that arrived
+  // before the connection existed was silently dropped (`if (!entry)
+  // return`), which meant ICE negotiation could get stuck missing
+  // candidates and never actually connect media — even though signaling
+  // (chat) worked fine since that doesn't depend on ICE at all. We now
+  // buffer those early candidates per socketId and flush them into the
+  // connection as soon as it's created.
+  const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(
+    new Map()
+  );
+
   const [remotePeers, setRemotePeers] = useState<Map<string, RemotePeer>>(
     new Map()
   );
@@ -163,6 +176,23 @@ export function useWebRTC({
         next.set(user.socketId, { user, stream: null });
         return next;
       });
+
+      // Flush any ICE candidates that arrived before this connection
+      // existed (see pendingCandidatesRef above).
+      const pending = pendingCandidatesRef.current.get(user.socketId);
+
+      if (pending && pending.length > 0) {
+        pendingCandidatesRef.current.delete(user.socketId);
+
+        pending.forEach((candidate) => {
+          connection
+            .addIceCandidate(new RTCIceCandidate(candidate))
+            .catch((error) => {
+              // eslint-disable-next-line no-console
+              console.error("Failed to add buffered ICE candidate:", error);
+            });
+        });
+      }
 
       return connection;
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -298,7 +328,20 @@ export function useWebRTC({
     }) {
       const entry = peersRef.current.get(from);
 
-      if (!entry) return;
+      if (!entry) {
+        // Bug fix: this candidate arrived before we created a connection
+        // for this peer (a real race — candidates can arrive before our
+        // own offer/answer handling finishes). It used to be dropped here
+        // silently, which could leave ICE negotiation permanently
+        // incomplete (so media never flowed) even on a same-network test
+        // where a direct connection should have been trivial. Buffer it
+        // and getOrCreatePeer will flush it in once the connection exists.
+        const existingPending =
+          pendingCandidatesRef.current.get(from) ?? [];
+        existingPending.push(candidate);
+        pendingCandidatesRef.current.set(from, existingPending);
+        return;
+      }
 
       try {
         await entry.connection.addIceCandidate(
