@@ -1,206 +1,105 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import {
-  socket,
-  socketEvents,
-} from "@/services/socket";
-
-export interface RoomParticipant {
-  id: string;
-  username: string;
-  muted: boolean;
-  cameraOff: boolean;
-  stream?: MediaStream | null;
-}
-
-interface ParticipantEvent {
-  meetingId: string;
-  participant: RoomParticipant;
-}
+import { getSocket, RoomUser } from "@/services/socket";
 
 interface UseRoomParticipantsOptions {
   meetingId: string;
-  currentUser: RoomParticipant;
+  currentUser: RoomUser;
 }
 
 export default function useRoomParticipants({
   meetingId,
   currentUser,
 }: UseRoomParticipantsOptions) {
-  const [participants, setParticipants] =
-    useState<RoomParticipant[]>([
-      currentUser,
-    ]);
+  const [participants, setParticipants] = useState<RoomUser[]>([currentUser]);
 
   useEffect(() => {
     setParticipants((current) => {
       const exists = current.some(
-        (participant) =>
-          participant.id === currentUser.id
+        (participant) => participant.id === currentUser.id
       );
 
       if (exists) {
         return current.map((participant) =>
           participant.id === currentUser.id
-            ? {
-                ...participant,
-                ...currentUser,
-              }
+            ? { ...participant, ...currentUser }
             : participant
         );
       }
 
       return [...current, currentUser];
     });
+    // meetingId is intentionally not a dependency here: it's only used by
+    // the socket-event effect below to scope incoming events to this room.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
   useEffect(() => {
-    const unsubscribeJoined =
-      socket.on(
-        socketEvents.USER_JOINED,
-        (data) => {
-          const event =
-            data as ParticipantEvent;
+    const socket = getSocket();
 
-          if (
-            event.meetingId !== meetingId
-          ) {
-            return;
-          }
-
-          setParticipants((current) => {
-            const exists = current.some(
-              (participant) =>
-                participant.id ===
-                event.participant.id
-            );
-
-            if (exists) {
-              return current;
-            }
-
-            return [
-              ...current,
-              event.participant,
-            ];
-          });
+    const handleJoined = (user: RoomUser) => {
+      setParticipants((current) => {
+        if (current.some((participant) => participant.id === user.id)) {
+          return current;
         }
+
+        return [...current, user];
+      });
+    };
+
+    const handleLeft = ({ socketId }: { socketId: string }) => {
+      setParticipants((current) =>
+        current.filter((participant) => participant.socketId !== socketId)
       );
+    };
 
-    const unsubscribeLeft =
-      socket.on(
-        socketEvents.USER_LEFT,
-        (data) => {
-          const event =
-            data as ParticipantEvent;
-
-          if (
-            event.meetingId !== meetingId
-          ) {
-            return;
-          }
-
-          setParticipants((current) =>
-            current.filter(
-              (participant) =>
-                participant.id !==
-                event.participant.id
-            )
-          );
-        }
+    const handleUpdated = (user: RoomUser) => {
+      setParticipants((current) =>
+        current.map((participant) =>
+          participant.id === user.id ? { ...participant, ...user } : participant
+        )
       );
+    };
 
-    const unsubscribeUpdated =
-      socket.on(
-        socketEvents.STREAM_UPDATED,
-        (data) => {
-          const event =
-            data as ParticipantEvent;
-
-          if (
-            event.meetingId !== meetingId
-          ) {
-            return;
-          }
-
-          setParticipants((current) =>
-            current.map((participant) =>
-              participant.id ===
-              event.participant.id
-                ? {
-                    ...participant,
-                    ...event.participant,
-                  }
-                : participant
-            )
-          );
-        }
-      );
+    socket.on("participant-joined", handleJoined);
+    socket.on("participant-left", handleLeft);
+    socket.on("participant-updated", handleUpdated);
 
     return () => {
-      unsubscribeJoined();
-      unsubscribeLeft();
-      unsubscribeUpdated();
+      socket.off("participant-joined", handleJoined);
+      socket.off("participant-left", handleLeft);
+      socket.off("participant-updated", handleUpdated);
     };
   }, [meetingId]);
 
-  const addParticipant =
-    useCallback(
-      (participant: RoomParticipant) => {
-        setParticipants((current) => {
-          if (
-            current.some(
-              (item) =>
-                item.id === participant.id
-            )
-          ) {
-            return current;
-          }
+  const addParticipant = useCallback((participant: RoomUser) => {
+    setParticipants((current) => {
+      if (current.some((item) => item.id === participant.id)) {
+        return current;
+      }
 
-          return [
-            ...current,
-            participant,
-          ];
-        });
-      },
-      []
+      return [...current, participant];
+    });
+  }, []);
+
+  const removeParticipant = useCallback((userId: string) => {
+    setParticipants((current) =>
+      current.filter((participant) => participant.id !== userId)
     );
+  }, []);
 
-  const removeParticipant =
-    useCallback((userId: string) => {
+  const updateParticipant = useCallback(
+    (userId: string, updates: Partial<RoomUser>) => {
       setParticipants((current) =>
-        current.filter(
-          (participant) =>
-            participant.id !== userId
+        current.map((participant) =>
+          participant.id === userId ? { ...participant, ...updates } : participant
         )
       );
-    }, []);
-
-  const updateParticipant =
-    useCallback(
-      (
-        userId: string,
-        updates: Partial<RoomParticipant>
-      ) => {
-        setParticipants((current) =>
-          current.map((participant) =>
-            participant.id === userId
-              ? {
-                  ...participant,
-                  ...updates,
-                }
-              : participant
-          )
-        );
-      },
-      []
-    );
+    },
+    []
+  );
 
   return {
     participants,
