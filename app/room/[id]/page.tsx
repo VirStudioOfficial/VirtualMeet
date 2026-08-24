@@ -56,27 +56,16 @@ export default function Room({
     selfSocketId,
   });
 
-  // 1. Grab local camera/mic on mount.
+  // 1. دریافت صدا و تصویر محلی
   useEffect(() => {
     const user = getCurrentUser();
 
     if (user?.username) {
       setUsername(user.username);
     } else {
-      // No logged-in user found — fall back to a guest name so the
-      // signaling connection still happens instead of hanging forever.
       setUsername(`Guest-${userId.slice(-4)}`);
     }
 
-    // React Strict Mode (dev only) runs this effect, its cleanup, and
-    // then this effect again on mount. getUserMedia is async, so without
-    // this guard the FIRST call's promise can resolve AFTER the second
-    // call has already started/finished, silently overwriting
-    // streamRef.current with a stale stream object — meanwhile
-    // toggleCamera/toggleMic keep reading whatever streamRef.current
-    // happens to be, which no longer matches what's actually being
-    // rendered or sent to peers. This made toggling look like it did
-    // nothing, or turning the camera back on not work.
     let cancelled = false;
 
     async function startMedia() {
@@ -87,9 +76,6 @@ export default function Room({
         });
 
         if (cancelled) {
-          // This effect instance was already cleaned up before the
-          // permission prompt resolved — don't adopt this stream, just
-          // release it immediately so the camera light turns off.
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
@@ -110,10 +96,9 @@ export default function Room({
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     };
-  }, []);
+  }, [userId]);
 
-  // 2. Once we have a username, join the signaling room. We wait for
-  // localStream too so our first offer already carries our tracks.
+  // 2. جوین شدن به روم سیگنالینگ
   useEffect(() => {
     if (!username) return;
 
@@ -126,9 +111,7 @@ export default function Room({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username]);
 
-  // 3. Call every participant that was already in the room when we joined,
-  // and any participant who joins after us. We only initiate the call from
-  // our side to avoid both peers racing to send an offer.
+  // 3. کال زدن با دیگران
   const calledRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -146,10 +129,6 @@ export default function Room({
     if (!track) return;
 
     if (track.readyState === "ended") {
-      // The track was stopped (hardware released) rather than merely
-      // disabled — toggling .enabled on a dead track does nothing, which
-      // is why "turn camera back on" looked like it was ignored. Recover
-      // by re-acquiring a fresh video track instead of failing silently.
       try {
         const freshStream = await navigator.mediaDevices.getUserMedia({
           video: true,
@@ -196,24 +175,16 @@ export default function Room({
     router.push("/");
   }
 
-  // The original camera video track, kept aside so we can restore it
-  // when screen-sharing stops. Screen-share is handled as a track swap
-  // on the SAME localStream object (so every peer connection's existing
-  // sender just gets a replaceTrack via the effect in useWebRTC) rather
-  // than building a new MediaStream, which was losing the camera track
-  // permanently once sharing ended.
   const cameraVideoTrackRef = useRef<MediaStreamTrack | null>(null);
 
   function handleScreenStreamChange(stream: MediaStream | null) {
     setScreenStream(stream);
 
     const currentStream = streamRef.current;
-
     if (!currentStream) return;
 
     if (stream) {
       const screenTrack = stream.getVideoTracks()[0];
-
       if (!screenTrack) return;
 
       const existingVideoTrack = currentStream.getVideoTracks()[0];
@@ -221,7 +192,6 @@ export default function Room({
       if (existingVideoTrack) {
         cameraVideoTrackRef.current = existingVideoTrack;
         currentStream.removeTrack(existingVideoTrack);
-        // Don't stop it — it's the camera track, we'll need it back.
       }
 
       currentStream.addTrack(screenTrack);
@@ -243,19 +213,12 @@ export default function Room({
       }
 
       cameraVideoTrackRef.current = null;
-
       setLocalStream(new MediaStream(currentStream.getTracks()));
     }
   }
 
   const videoParticipants = useMemo(() => {
     const self = {
-      // Always use our own stable userId as the key/id for our own tile —
-      // never selfSocketId, which starts null and only gets a value once
-      // the signaling connection completes. Switching id values makes
-      // React treat "self" as a brand new video tile (VideoGrid keys off
-      // user.id), unmounting and remounting VideoPlayer right as camera
-      // state churns, which was interacting badly with the toggle.
       user: {
         id: userId,
         username: username || "Guest",
@@ -284,7 +247,6 @@ export default function Room({
       <div className="flex justify-between items-center mb-4">
         <div>
           <h1 className="text-3xl font-bold">Virtual Meet</h1>
-
           <p className="text-gray-400">
             Room: {roomId} {isConnected ? "🟢" : "🟡 در حال اتصال..."}
           </p>
