@@ -1,67 +1,74 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
-import { getCurrentUser } from "../../services/auth";
-import { updateUser } from "../../database/users";
-import { User } from "../../types/user";
+import {
+  getCurrentUser,
+} from "@/services/auth";
 
-const USER_KEY = "virtual-meet-user";
+import {
+  updateUser,
+} from "@/database/users";
+
+import { User } from "@/types/user";
 
 export default function ProfilePage() {
-  const router = useRouter();
+  const [user, setUser] =
+    useState<User | null>(null);
 
-  const [user, setUser] = useState<User | null>(null);
-  const [username, setUsername] = useState("");
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState("");
+  const [username, setUsername] =
+    useState("");
+
+  const [bio, setBio] =
+    useState("");
+
+  const [saved, setSaved] =
+    useState(false);
 
   useEffect(() => {
-    const currentUser = getCurrentUser();
+    const currentUser =
+      getCurrentUser();
 
     if (!currentUser) {
-      router.replace("/login");
       return;
     }
 
     setUser(currentUser);
-    setUsername(currentUser.username);
-  }, [router]);
+    setUsername(
+      currentUser.username
+    );
+    setBio(
+      currentUser.bio || ""
+    );
+  }, []);
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
+  function saveProfile() {
     if (!user) {
       return;
     }
 
-    const newUsername = username.trim();
-
-    if (!newUsername) {
-      setError("نام کاربری نمی‌تواند خالی باشد.");
-      return;
-    }
-
-    setError("");
-
-    const updatedUser = updateUser(user.id, {
-      username: newUsername,
-    });
+    const updatedUser =
+      updateUser(
+        user.id,
+        {
+          username:
+            username.trim(),
+          bio:
+            bio.trim(),
+        }
+      );
 
     if (!updatedUser) {
-      setError("ذخیره پروفایل انجام نشد.");
       return;
     }
 
-    // به‌روزرسانی کاربر فعلی برای Auth
+    setUser(updatedUser);
+
     localStorage.setItem(
-      USER_KEY,
+      "virtual-meet-user",
       JSON.stringify(updatedUser)
     );
 
-    setUser(updatedUser);
-    setUsername(updatedUser.username);
     setSaved(true);
 
     setTimeout(() => {
@@ -72,8 +79,8 @@ export default function ProfilePage() {
   if (!user) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-black text-white">
-        <p className="text-gray-400">
-          در حال بارگذاری...
+        <p>
+          کاربری پیدا نشد.
         </p>
       </main>
     );
@@ -81,102 +88,77 @@ export default function ProfilePage() {
 
   return (
     <main className="min-h-screen bg-black p-6 text-white">
-      <div className="mx-auto max-w-2xl">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">
-            پروفایل
-          </h1>
+      <div className="mx-auto max-w-xl rounded-2xl bg-gray-900 p-6">
 
-          <p className="mt-1 text-gray-400">
-            اطلاعات حساب کاربری خودت
-          </p>
-        </div>
+        <h1 className="mb-6 text-3xl font-bold">
+          Profile
+        </h1>
 
-        <section className="rounded-2xl bg-gray-900 p-6">
-          <div className="mb-6 flex items-center gap-4">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-blue-600 text-2xl font-bold">
-              {user.username.charAt(0).toUpperCase()}
-            </div>
 
-            <div>
-              <h2 className="text-xl font-bold">
-                {user.username}
-              </h2>
-
-              <p className="text-sm text-gray-400">
-                {user.email}
-              </p>
-            </div>
+        <div className="mb-6 flex items-center gap-4">
+          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-600 text-3xl font-bold">
+            {username
+              .charAt(0)
+              .toUpperCase()}
           </div>
 
-          <form
-            onSubmit={handleSubmit}
-            className="space-y-5"
-          >
-            <div>
-              <label
-                htmlFor="username"
-                className="mb-2 block text-sm text-gray-300"
-              >
-                نام کاربری
-              </label>
+          <div>
+            <p className="text-lg font-semibold">
+              {user.email}
+            </p>
 
-              <input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(event) =>
-                  setUsername(event.target.value)
-                }
-                className="w-full rounded-xl bg-gray-800 px-4 py-3 text-white outline-none focus:ring-2 focus:ring-blue-600"
-              />
-            </div>
+            <p className="text-sm text-gray-400">
+              User ID: {user.id}
+            </p>
+          </div>
+        </div>
 
-            <div>
-              <label
-                htmlFor="email"
-                className="mb-2 block text-sm text-gray-300"
-              >
-                ایمیل
-              </label>
 
-              <input
-                id="email"
-                type="email"
-                value={user.email}
-                disabled
-                className="w-full cursor-not-allowed rounded-xl bg-gray-800/60 px-4 py-3 text-gray-500"
-              />
-            </div>
+        <label className="mb-2 block text-sm text-gray-400">
+          Username
+        </label>
 
-            {error && (
-              <div className="rounded-xl bg-red-900/30 p-3 text-sm text-red-400">
-                {error}
-              </div>
-            )}
+        <input
+          value={username}
+          onChange={(e) =>
+            setUsername(
+              e.target.value
+            )
+          }
+          className="mb-4 w-full rounded-xl bg-gray-800 px-4 py-3 outline-none"
+        />
 
-            {saved && (
-              <div className="rounded-xl bg-green-900/30 p-3 text-sm text-green-400">
-                ✅ پروفایل با موفقیت ذخیره شد.
-              </div>
-            )}
 
-            <button
-              type="submit"
-              className="w-full rounded-xl bg-blue-600 px-5 py-3 font-semibold hover:bg-blue-700"
-            >
-              ذخیره تغییرات
-            </button>
-          </form>
-        </section>
+        <label className="mb-2 block text-sm text-gray-400">
+          Bio
+        </label>
+
+        <textarea
+          value={bio}
+          onChange={(e) =>
+            setBio(
+              e.target.value
+            )
+          }
+          rows={4}
+          className="mb-5 w-full rounded-xl bg-gray-800 px-4 py-3 outline-none"
+        />
+
 
         <button
-          type="button"
-          onClick={() => router.push("/dashboard")}
-          className="mt-5 rounded-xl bg-gray-800 px-5 py-3 text-gray-300 hover:bg-gray-700"
+          onClick={saveProfile}
+          className="w-full rounded-xl bg-blue-600 px-5 py-3 font-semibold hover:bg-blue-700"
         >
-          ← بازگشت به داشبورد
+          ذخیره تغییرات
         </button>
+
+
+        {saved && (
+          <p className="mt-4 text-center text-green-400">
+            پروفایل ذخیره شد ✅
+          </p>
+        )}
+
       </div>
     </main>
   );
