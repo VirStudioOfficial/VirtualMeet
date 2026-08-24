@@ -3,9 +3,9 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { getCurrentUser } from "../../services/auth";
-import { getUserById, updateUser } from "../../database/users";
-import { User } from "../../types/user";
+import { getCurrentUser } from "../services/auth";
+import { getUserById, updateUser } from "../database/users";
+import { User } from "../types/user";
 
 const USER_KEY = "virtual-meet-user";
 
