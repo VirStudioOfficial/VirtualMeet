@@ -1,130 +1,73 @@
-"use client";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-} from "react";
+export function useCamera() {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-export default function useCamera() {
-  const [stream, setStream] =
-    useState<MediaStream | null>(null);
+  const [isCameraOn, setIsCameraOn] = useState(false);
+  const [error, setError] = useState("");
 
-  const [cameraOff, setCameraOff] =
-    useState(false);
+  const startCamera = useCallback(async () => {
+    try {
+      setError("");
 
-  const [muted, setMuted] =
-    useState(false);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+      });
 
-  const [error, setError] =
-    useState<string | null>(null);
+      streamRef.current = stream;
 
-
-  const startCamera =
-    useCallback(async () => {
-      try {
-        setError(null);
-
-        const mediaStream =
-          await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true,
-          });
-
-        setStream(mediaStream);
-        setCameraOff(false);
-        setMuted(false);
-
-        return mediaStream;
-
-      } catch (err) {
-        setError(
-          "دسترسی به دوربین یا میکروفون امکان‌پذیر نیست."
-        );
-
-        return null;
-      }
-    }, []);
-
-
-  const toggleCamera =
-    useCallback(() => {
-      if (!stream) {
-        return;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
       }
 
-      const nextState = !cameraOff;
+      setIsCameraOn(true);
+    } catch {
+      setError("دسترسی به دوربین امکان‌پذیر نیست.");
+      setIsCameraOn(false);
+    }
+  }, []);
 
-      stream
-        .getVideoTracks()
-        .forEach((track) => {
-          track.enabled = !nextState;
-        });
+  const toggleCamera = useCallback(() => {
+    const track = streamRef.current?.getVideoTracks()[0];
 
-      setCameraOff(nextState);
+    if (!track) {
+      return;
+    }
 
-    }, [stream, cameraOff]);
+    track.enabled = !track.enabled;
+    setIsCameraOn(track.enabled);
+  }, []);
 
+  const stopCamera = useCallback(() => {
+    streamRef.current?.getVideoTracks().forEach((track) => {
+      track.stop();
+    });
 
-  const toggleMicrophone =
-    useCallback(() => {
-      if (!stream) {
-        return;
-      }
+    streamRef.current = null;
 
-      const nextState = !muted;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
 
-      stream
-        .getAudioTracks()
-        .forEach((track) => {
-          track.enabled = !nextState;
-        });
-
-      setMuted(nextState);
-
-    }, [stream, muted]);
-
-
-  const stopCamera =
-    useCallback(() => {
-      if (!stream) {
-        return;
-      }
-
-      stream
-        .getTracks()
-        .forEach((track) =>
-          track.stop()
-        );
-
-      setStream(null);
-      setCameraOff(false);
-      setMuted(false);
-
-    }, [stream]);
-
+    setIsCameraOn(false);
+  }, []);
 
   useEffect(() => {
     return () => {
-      if (stream) {
-        stream
-          .getTracks()
-          .forEach((track) =>
-            track.stop()
-          );
-      }
+      streamRef.current?.getTracks().forEach((track) => {
+        track.stop();
+      });
     };
-  }, [stream]);
-
+  }, []);
 
   return {
-    stream,
-    cameraOff,
-    muted,
+    videoRef,
+    stream: streamRef.current,
+    isCameraOn,
     error,
     startCamera,
-    stopCamera,
     toggleCamera,
-    toggleMicrophone,
+    stopCamera,
   };
 }
