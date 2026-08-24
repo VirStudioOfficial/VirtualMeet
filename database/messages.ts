@@ -1,10 +1,13 @@
-import { Message } from "../types/message";
+export interface Message {
+  id: string;
+  meetingId: string;
+  userId: string;
+  username: string;
+  message: string;
+  createdAt: string;
+}
 
 const MESSAGES_KEY = "virtual-meet-messages";
-
-type StoredMessage = Omit<Message, "createdAt"> & {
-  createdAt: string;
-};
 
 function getMessages(): Message[] {
   if (typeof window === "undefined") {
@@ -18,12 +21,7 @@ function getMessages(): Message[] {
   }
 
   try {
-    const parsed = JSON.parse(stored) as StoredMessage[];
-
-    return parsed.map((message) => ({
-      ...message,
-      createdAt: new Date(message.createdAt),
-    }));
+    return JSON.parse(stored) as Message[];
   } catch {
     return [];
   }
@@ -44,12 +42,16 @@ export function getAllMessages(): Message[] {
   return getMessages();
 }
 
-export function getMessagesByRoom(
-  roomId: string
+export function getMessagesByMeeting(
+  meetingId: string
 ): Message[] {
-  return getMessages().filter(
-    (message) => message.roomId === roomId
-  );
+  return getMessages()
+    .filter((message) => message.meetingId === meetingId)
+    .sort(
+      (a, b) =>
+        new Date(a.createdAt).getTime() -
+        new Date(b.createdAt).getTime()
+    );
 }
 
 export function getMessageById(
@@ -62,54 +64,68 @@ export function getMessageById(
   );
 }
 
-export function createMessage(
-  message: Message
-): Message {
-  const messages = getMessages();
+export function createMessage(data: {
+  meetingId: string;
+  userId: string;
+  username: string;
+  message: string;
+}): Message | null {
+  const text = data.message.trim();
 
-  const existing = messages.find(
-    (item) => item.id === message.id
-  );
-
-  if (existing) {
-    return existing;
+  if (!text) {
+    return null;
   }
 
-  messages.push(message);
-  saveMessages(messages);
-
-  return message;
-}
-
-export function deleteMessage(id: string): boolean {
   const messages = getMessages();
 
-  const filtered = messages.filter(
-    (message) => message.id !== id
+  const newMessage: Message = {
+    id: crypto.randomUUID(),
+    meetingId: data.meetingId,
+    userId: data.userId,
+    username: data.username,
+    message: text.slice(0, 1000),
+    createdAt: new Date().toISOString(),
+  };
+
+  messages.push(newMessage);
+  saveMessages(messages);
+
+  return newMessage;
+}
+
+export function deleteMessage(
+  id: string,
+  userId: string
+): boolean {
+  const messages = getMessages();
+
+  const message = messages.find(
+    (item) => item.id === id
   );
 
-  if (filtered.length === messages.length) {
+  if (!message || message.userId !== userId) {
     return false;
   }
 
-  saveMessages(filtered);
+  const filteredMessages = messages.filter(
+    (item) => item.id !== id
+  );
+
+  saveMessages(filteredMessages);
 
   return true;
 }
 
-export function deleteRoomMessages(
-  roomId: string
+export function clearMeetingMessages(
+  meetingId: string
 ): number {
   const messages = getMessages();
 
-  const filtered = messages.filter(
-    (message) => message.roomId !== roomId
+  const remainingMessages = messages.filter(
+    (message) => message.meetingId !== meetingId
   );
 
-  const deletedCount =
-    messages.length - filtered.length;
+  saveMessages(remainingMessages);
 
-  saveMessages(filtered);
-
-  return deletedCount;
+  return messages.length - remainingMessages.length;
 }
