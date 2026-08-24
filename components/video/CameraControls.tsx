@@ -1,53 +1,60 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 interface CameraControlsProps {
-  isCameraOn: boolean;
-  isMicrophoneOn: boolean;
-  onToggleCamera: () => void;
-  onToggleMicrophone: () => void;
-  onLeave: () => void;
+  stream?: MediaStream | null;
+  initialOff?: boolean;
+  onCameraChange?: (off: boolean) => void;
 }
 
 export default function CameraControls({
-  isCameraOn,
-  isMicrophoneOn,
-  onToggleCamera,
-  onToggleMicrophone,
-  onLeave,
+  stream = null,
+  initialOff = false,
+  onCameraChange,
 }: CameraControlsProps) {
+  const [isCameraOff, setIsCameraOff] =
+    useState(initialOff);
+
+  useEffect(() => {
+    setIsCameraOff(initialOff);
+  }, [initialOff]);
+
+  function toggleCamera() {
+    const nextOff = !isCameraOff;
+
+    if (stream) {
+      stream.getVideoTracks().forEach((track) => {
+        track.enabled = !nextOff;
+      });
+    }
+
+    setIsCameraOff(nextOff);
+    onCameraChange?.(nextOff);
+  }
+
   return (
-    <div className="flex items-center justify-center gap-3">
-      <button
-        onClick={onToggleMicrophone}
-        type="button"
-        className={`rounded-xl px-5 py-3 font-medium transition ${
-          isMicrophoneOn
-            ? "bg-white text-black hover:bg-gray-200"
-            : "bg-red-600 text-white hover:bg-red-700"
-        }`}
-      >
-        {isMicrophoneOn ? "🎤 Mic On" : "🔇 Mic Off"}
-      </button>
+    <button
+      type="button"
+      onClick={toggleCamera}
+      aria-label={
+        isCameraOff
+          ? "فعال کردن دوربین"
+          : "خاموش کردن دوربین"
+      }
+      className={`flex items-center gap-2 rounded-xl px-5 py-3 font-medium transition ${
+        isCameraOff
+          ? "bg-red-600 hover:bg-red-700"
+          : "bg-gray-800 hover:bg-gray-700"
+      }`}
+    >
+      <span>{isCameraOff ? "📷" : "🎥"}</span>
 
-      <button
-        onClick={onToggleCamera}
-        type="button"
-        className={`rounded-xl px-5 py-3 font-medium transition ${
-          isCameraOn
-            ? "bg-white text-black hover:bg-gray-200"
-            : "bg-red-600 text-white hover:bg-red-700"
-        }`}
-      >
-        {isCameraOn ? "📷 Camera On" : "🚫 Camera Off"}
-      </button>
-
-      <button
-        onClick={onLeave}
-        type="button"
-        className="rounded-xl bg-red-600 px-5 py-3 font-medium text-white transition hover:bg-red-700"
-      >
-        🚪 خروج
-      </button>
-    </div>
+      <span>
+        {isCameraOff
+          ? "فعال کردن Camera"
+          : "خاموش کردن Camera"}
+      </span>
+    </button>
   );
 }
