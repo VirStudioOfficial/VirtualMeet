@@ -131,14 +131,31 @@ export function useWebRTC({
   }, [localStream, renegotiate]);
 
   const updateRemotePeer = useCallback(
-    (socketId: string, updates: Partial<RemotePeer>) => {
+    (socketId: string, user: RoomUser, updates: Partial<RemotePeer>) => {
       setRemotePeers((current) => {
         const next = new Map(current);
         const existing = next.get(socketId);
 
-        if (!existing) return current;
+        // Bug fix: this used to bail out entirely ("return current") when
+        // there was no existing entry yet, silently dropping the update.
+        // connection.ontrack can fire (it's triggered internally by
+        // setRemoteDescription, which is async) before the
+        // peersRef.current.set(...)/setRemotePeers(...) calls in
+        // getOrCreatePeer below have actually run and registered this
+        // peer's placeholder entry — a real race, not a hypothetical one,
+        // and exactly why remote video/audio tracks were received (visible
+        // in the ontrack debug logs) but never appeared on screen: the
+        // stream arrived, updateRemotePeer was called with it, and it was
+        // thrown away here because "existing" wasn't in the map yet. The
+        // caller always has `user` available from its own closure, so we
+        // now take it as a parameter instead of requiring a pre-existing
+        // map entry, and always create/update the entry.
+        next.set(socketId, {
+          user,
+          stream: existing?.stream ?? null,
+          ...updates,
+        });
 
-        next.set(socketId, { ...existing, ...updates });
         return next;
       });
     },
@@ -181,7 +198,7 @@ export function useWebRTC({
         );
 
         const stream = event.streams[0] ?? null;
-        updateRemotePeer(user.socketId, { stream });
+        updateRemotePeer(user.socketId, user, { stream });
       };
 
       connection.onconnectionstatechange = () => {
@@ -214,9 +231,15 @@ export function useWebRTC({
 
       peersRef.current.set(user.socketId, { connection, user });
 
+      // Bug fix: preserve any stream that ontrack may have already
+      // delivered for this socketId before this point ran (see the
+      // updateRemotePeer race explained above) — don't clobber it back to
+      // null just because this is "creating" the entry from this
+      // function's point of view.
       setRemotePeers((current) => {
         const next = new Map(current);
-        next.set(user.socketId, { user, stream: null });
+        const existingStream = next.get(user.socketId)?.stream ?? null;
+        next.set(user.socketId, { user, stream: existingStream });
         return next;
       });
 
@@ -431,7 +454,7 @@ export function useWebRTC({
         entry.user = user;
       }
 
-      updateRemotePeer(user.socketId, { user });
+      updateRemotePeer(user.socketId, user, { user });
     }
 
     socket.on("webrtc-offer", handleOffer);
