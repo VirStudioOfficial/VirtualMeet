@@ -35,6 +35,7 @@ export default function CreatePage() {
       hostId: user.id,
       participants: [user.id],
       createdAt: new Date(),
+      isActive: true,
     };
 
     createMeeting(meeting);
