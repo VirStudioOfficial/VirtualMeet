@@ -1,3 +1,5 @@
+"use client";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export function useCamera() {
@@ -11,40 +13,45 @@ export function useCamera() {
     try {
       setError("");
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-      });
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError("دسترسی به دوربین در این مرورگر وجود ندارد.");
+        return false;
+      }
+
+      if (streamRef.current) {
+        return true;
+      }
+
+      const stream =
+        await navigator.mediaDevices.getUserMedia({
+          video: true,
+        });
 
       streamRef.current = stream;
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
       }
 
       setIsCameraOn(true);
+
+      return true;
     } catch {
-      setError("دسترسی به دوربین امکان‌پذیر نیست.");
       setIsCameraOn(false);
+      setError("دسترسی به دوربین امکان‌پذیر نیست.");
+      return false;
     }
-  }, []);
-
-  const toggleCamera = useCallback(() => {
-    const track = streamRef.current?.getVideoTracks()[0];
-
-    if (!track) {
-      return;
-    }
-
-    track.enabled = !track.enabled;
-    setIsCameraOn(track.enabled);
   }, []);
 
   const stopCamera = useCallback(() => {
-    streamRef.current?.getVideoTracks().forEach((track) => {
-      track.stop();
-    });
+    if (streamRef.current) {
+      streamRef.current
+        .getTracks()
+        .forEach((track) => track.stop());
 
-    streamRef.current = null;
+      streamRef.current = null;
+    }
 
     if (videoRef.current) {
       videoRef.current.srcObject = null;
@@ -53,11 +60,33 @@ export function useCamera() {
     setIsCameraOn(false);
   }, []);
 
+  const toggleCamera = useCallback(async () => {
+    if (!streamRef.current) {
+      return startCamera();
+    }
+
+    const videoTrack =
+      streamRef.current.getVideoTracks()[0];
+
+    if (!videoTrack) {
+      return startCamera();
+    }
+
+    const nextState = !videoTrack.enabled;
+
+    videoTrack.enabled = nextState;
+    setIsCameraOn(nextState);
+
+    return nextState;
+  }, [startCamera]);
+
   useEffect(() => {
     return () => {
-      streamRef.current?.getTracks().forEach((track) => {
-        track.stop();
-      });
+      if (streamRef.current) {
+        streamRef.current
+          .getTracks()
+          .forEach((track) => track.stop());
+      }
     };
   }, []);
 
@@ -67,7 +96,7 @@ export function useCamera() {
     isCameraOn,
     error,
     startCamera,
-    toggleCamera,
     stopCamera,
+    toggleCamera,
   };
 }
