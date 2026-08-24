@@ -1,184 +1,93 @@
 "use client";
 
-export interface SocketMessage<T = unknown> {
-  type: string;
-  roomId: string;
-  senderId?: string;
-  data?: T;
-}
-
-type MessageHandler<T = unknown> = (
-  message: SocketMessage<T>
+type EventCallback = (
+  data: unknown
 ) => void;
 
-export class MeetSocket {
-  private socket: WebSocket | null = null;
-  private handlers = new Map<
-    string,
-    Set<MessageHandler>
-  >();
 
-  private url: string;
+interface SocketEvents {
+  [event: string]: EventCallback[];
+}
 
-  constructor(url?: string) {
-    this.url =
-      url ||
-      process.env.NEXT_PUBLIC_SOCKET_URL ||
-      "ws://localhost:3001";
-  }
 
-  connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (this.socket?.readyState === WebSocket.OPEN) {
-        resolve();
-        return;
-      }
+class VirtualSocket {
+  private events: SocketEvents = {};
 
-      const socket = new WebSocket(this.url);
 
-      this.socket = socket;
-
-      socket.onopen = () => {
-        resolve();
-      };
-
-      socket.onerror = () => {
-        reject(
-          new Error("اتصال به سرور Socket برقرار نشد.")
-        );
-      };
-
-      socket.onmessage = (event) => {
-        try {
-          const message =
-            JSON.parse(event.data) as SocketMessage;
-
-          const handlers = this.handlers.get(
-            message.type
-          );
-
-          handlers?.forEach((handler) => {
-            handler(message);
-          });
-        } catch {
-          console.error(
-            "Invalid socket message received."
-          );
-        }
-      };
-
-      socket.onclose = () => {
-        this.socket = null;
-      };
-    });
-  }
-
-  disconnect(): void {
-    if (this.socket) {
-      this.socket.close();
-      this.socket = null;
-    }
-  }
-
-  send<T>(
-    message: SocketMessage<T>
-  ): boolean {
-    if (
-      !this.socket ||
-      this.socket.readyState !== WebSocket.OPEN
-    ) {
-      return false;
+  on(
+    event: string,
+    callback: EventCallback
+  ) {
+    if (!this.events[event]) {
+      this.events[event] = [];
     }
 
-    this.socket.send(
-      JSON.stringify(message)
-    );
+    this.events[event].push(callback);
 
-    return true;
-  }
-
-  on<T = unknown>(
-    type: string,
-    handler: MessageHandler<T>
-  ): () => void {
-    if (!this.handlers.has(type)) {
-      this.handlers.set(
-        type,
-        new Set()
-      );
-    }
-
-    this.handlers
-      .get(type)!
-      .add(handler as MessageHandler);
 
     return () => {
-      this.handlers
-        .get(type)
-        ?.delete(handler as MessageHandler);
+      this.events[event] =
+        this.events[event]?.filter(
+          (item) =>
+            item !== callback
+        ) ?? [];
     };
   }
 
-  joinRoom(
-    roomId: string,
-    senderId: string
-  ): boolean {
-    return this.send({
-      type: "join-room",
-      roomId,
-      senderId,
-    });
+
+  emit(
+    event: string,
+    data?: unknown
+  ) {
+    const listeners =
+      this.events[event];
+
+
+    if (!listeners) {
+      return;
+    }
+
+
+    listeners.forEach(
+      (callback) => {
+        callback(data);
+      }
+    );
   }
 
-  leaveRoom(
-    roomId: string,
-    senderId: string
-  ): boolean {
-    return this.send({
-      type: "leave-room",
-      roomId,
-      senderId,
-    });
-  }
 
-  sendOffer(
-    roomId: string,
-    senderId: string,
-    offer: RTCSessionDescriptionInit
-  ): boolean {
-    return this.send({
-      type: "offer",
-      roomId,
-      senderId,
-      data: offer,
-    });
-  }
+  removeAllListeners(
+    event?: string
+  ) {
+    if (event) {
+      delete this.events[event];
+      return;
+    }
 
-  sendAnswer(
-    roomId: string,
-    senderId: string,
-    answer: RTCSessionDescriptionInit
-  ): boolean {
-    return this.send({
-      type: "answer",
-      roomId,
-      senderId,
-      data: answer,
-    });
-  }
 
-  sendIceCandidate(
-    roomId: string,
-    senderId: string,
-    candidate: RTCIceCandidateInit
-  ): boolean {
-    return this.send({
-      type: "ice-candidate",
-      roomId,
-      senderId,
-      data: candidate,
-    });
+    this.events = {};
   }
 }
 
-export const socket = new MeetSocket();
+
+export const socket =
+  new VirtualSocket();
+
+
+
+export const socketEvents = {
+  USER_JOINED:
+    "user_joined",
+
+  USER_LEFT:
+    "user_left",
+
+  MESSAGE_SENT:
+    "message_sent",
+
+  STREAM_UPDATED:
+    "stream_updated",
+
+  ROOM_UPDATED:
+    "room_updated",
+};
