@@ -34,7 +34,7 @@ export default function CreatePage() {
       title: title.trim() || "Virtual Meeting",
       hostId: user.id,
       participants: [user.id],
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(), // ✅ تبدیل Date به string
       isActive: true,
     };
 
@@ -49,9 +49,7 @@ export default function CreatePage() {
         <div className="mb-6 text-center">
           <div className="mb-3 text-5xl">🎥</div>
 
-          <h1 className="text-3xl font-bold">
-            ساخت جلسه جدید
-          </h1>
+          <h1 className="text-3xl font-bold">ساخت جلسه جدید</h1>
 
           <p className="mt-2 text-sm text-gray-400">
             یک اتاق جدید برای جلسه‌ات بساز
