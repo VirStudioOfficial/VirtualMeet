@@ -14,6 +14,7 @@ import { getSocket, RoomUser } from "../services/socket";
 
 interface UseWebRTCOptions {
   localStream: MediaStream | null;
+  selfSocketId?: string | null;
 }
 
 interface RemotePeer {
@@ -31,7 +32,7 @@ interface RemotePeer {
  *   to us (handled by "webrtc-offer" listener below), and we answer.
  * - ICE candidates are relayed through the socket as they're discovered.
  */
-export function useWebRTC({ localStream }: UseWebRTCOptions) {
+export function useWebRTC({ localStream, selfSocketId }: UseWebRTCOptions) {
   const [remotePeers, setRemotePeers] = useState<Map<string, RemotePeer>>(
     new Map()
   );
@@ -139,6 +140,8 @@ export function useWebRTC({ localStream }: UseWebRTCOptions) {
 
   const callPeer = useCallback(
     async (remoteUser: RoomUser) => {
+      if (selfSocketId && remoteUser.socketId === selfSocketId) return;
+
       const socket = getSocket();
       const peer = buildPeerConnection(remoteUser.socketId);
 
@@ -205,6 +208,11 @@ export function useWebRTC({ localStream }: UseWebRTCOptions) {
     }
 
     function handleParticipantUpdated(user: RoomUser) {
+      // The server echoes update-status to everyone in the room, including
+      // the sender. Without this guard we'd create a "remote peer" entry
+      // for ourselves, which shows up as a phantom duplicate video tile.
+      if (selfSocketId && user.socketId === selfSocketId) return;
+
       upsertRemotePeer(user.socketId, { user });
     }
 
@@ -225,7 +233,7 @@ export function useWebRTC({ localStream }: UseWebRTCOptions) {
       socket.off("participant-updated", handleParticipantUpdated);
       socket.off("participant-left", handleParticipantLeft);
     };
-  }, [buildPeerConnection, removeRemotePeer, upsertRemotePeer]);
+  }, [buildPeerConnection, removeRemotePeer, upsertRemotePeer, selfSocketId]);
 
   const closeAllPeers = useCallback(() => {
     peersRef.current.forEach((peer) => closePeerConnection(peer));
