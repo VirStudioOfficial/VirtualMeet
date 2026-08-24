@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 
 import useMeeting from "@/hooks/useMeeting";
+import useCamera from "@/hooks/useCamera";
 
 import VideoGrid, {
   VideoParticipant,
@@ -11,19 +12,15 @@ import VideoGrid, {
 
 import MeetingControls from "@/components/meeting/MeetingControls";
 import Participants from "@/components/meeting/Participants";
+
 import ChatBox, {
   ChatMessage,
 } from "@/components/chat/ChatBox";
 
-import {
-  getCurrentUser,
-} from "@/services/auth";
-
 export default function RoomPage() {
   const params = useParams();
 
-  const roomId =
-    params.id as string;
+  const roomId = params.id as string;
 
   const {
     meeting,
@@ -34,36 +31,59 @@ export default function RoomPage() {
   } = useMeeting(roomId);
 
 
+  const {
+    stream,
+    cameraOff,
+    muted,
+    startCamera,
+    stopCamera,
+    toggleCamera,
+    toggleMicrophone,
+  } = useCamera();
+
+
   const [participants, setParticipants] =
     useState<VideoParticipant[]>([]);
+
 
   const [messages, setMessages] =
     useState<ChatMessage[]>([]);
 
 
   useEffect(() => {
-    if (!loading && meeting && user) {
-      joinMeeting();
+    async function initializeRoom() {
+      if (!loading && meeting && user) {
+        joinMeeting();
 
-      setParticipants([
-        {
-          id: user.id,
-          username: user.username,
-          stream: null,
-          muted: user.isMuted,
-          cameraOff: user.isCameraOff,
-        },
-      ]);
+        const cameraStream =
+          await startCamera();
+
+
+        setParticipants([
+          {
+            id: user.id,
+            username: user.username,
+            stream: cameraStream,
+            muted,
+            cameraOff,
+          },
+        ]);
+      }
     }
+
+
+    initializeRoom();
+
   }, [
     loading,
     meeting,
     user,
-    joinMeeting,
   ]);
 
 
   function handleLeave() {
+    stopCamera();
+
     leaveMeeting();
 
     window.location.href = "/";
@@ -71,6 +91,8 @@ export default function RoomPage() {
 
 
   function handleEndMeeting() {
+    stopCamera();
+
     window.location.href = "/";
   }
 
@@ -82,6 +104,7 @@ export default function RoomPage() {
       return;
     }
 
+
     const newMessage: ChatMessage = {
       id: crypto.randomUUID(),
       userId: user.id,
@@ -90,6 +113,7 @@ export default function RoomPage() {
       timestamp:
         new Date().toISOString(),
     };
+
 
     setMessages((current) => [
       ...current,
@@ -132,13 +156,39 @@ export default function RoomPage() {
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
 
+
         <div className="space-y-4">
+
 
           <div className="min-h-[500px]">
             <VideoGrid
               participants={participants}
               localUserId={user.id}
             />
+          </div>
+
+
+          <div className="flex justify-center gap-3">
+
+            <button
+              onClick={toggleMicrophone}
+              className="rounded-xl bg-gray-800 px-5 py-3"
+            >
+              {muted
+                ? "🎤 روشن کردن Mic"
+                : "🔇 خاموش کردن Mic"}
+            </button>
+
+
+            <button
+              onClick={toggleCamera}
+              className="rounded-xl bg-gray-800 px-5 py-3"
+            >
+              {cameraOff
+                ? "📷 روشن کردن Camera"
+                : "🎥 خاموش کردن Camera"}
+            </button>
+
           </div>
 
 
@@ -151,6 +201,7 @@ export default function RoomPage() {
           />
 
         </div>
+
 
 
         <div className="space-y-4">
@@ -178,6 +229,7 @@ export default function RoomPage() {
           />
 
         </div>
+
 
       </div>
 
