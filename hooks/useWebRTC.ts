@@ -42,6 +42,12 @@ export function useWebRTC({ localStream, selfSocketId }: UseWebRTCOptions) {
 
   const renegotiate = useCallback(
     async (remoteSocketId: string, peer: RTCPeerConnection) => {
+      // Never start a new offer while a negotiation is already in flight —
+      // sending a second offer before the first offer/answer round trip
+      // finishes causes the remote side to apply an answer to a
+      // superseded offer ("wrong state: stable").
+      if (peer.signalingState !== "stable") return;
+
       const offer = await createOffer(peer);
 
       getSocket().emit("webrtc-offer", {
@@ -55,10 +61,23 @@ export function useWebRTC({ localStream, selfSocketId }: UseWebRTCOptions) {
   useEffect(() => {
     localStreamRef.current = localStream;
 
-    // If tracks change (e.g. camera toggled after connections exist, or
-    // getUserMedia resolved after the peer connection was already built),
-    // make sure already-open peer connections send the latest tracks.
+    // If tracks change on an ALREADY-ESTABLISHED connection (e.g. camera
+    // toggled, or a track added after the initial handshake completed),
+    // make sure the peer connection sends the latest tracks.
+    //
+    // Important: this must NOT touch connections that are still doing
+    // their initial offer/answer — buildPeerConnection() already adds
+    // every current track before creating that first offer, so those
+    // tracks are already included. Re-adding them here and firing a
+    // second offer while the first handshake is still in flight is what
+    // caused "Called in wrong state: stable" and meant media never
+    // actually reached the remote side.
     peersRef.current.forEach((peer, remoteSocketId) => {
+      // currentLocalDescription only exists once an offer/answer has
+      // actually completed at least once — before that, this connection
+      // is still doing its initial setup and already has our tracks.
+      if (!peer.currentLocalDescription) return;
+
       const senders = peer.getSenders();
       let addedNewTrack = false;
 
@@ -66,12 +85,13 @@ export function useWebRTC({ localStream, selfSocketId }: UseWebRTCOptions) {
         const sender = senders.find((s) => s.track?.kind === track.kind);
 
         if (sender) {
-          sender.replaceTrack(track);
+          if (sender.track !== track) {
+            sender.replaceTrack(track);
+          }
         } else {
           // A brand new transceiver. Unlike replaceTrack, this requires
           // renegotiation (a fresh offer/answer) before the remote side
-          // actually receives anything on it — without renegotiating,
-          // the track exists locally but silently never reaches the peer.
+          // actually receives anything on it.
           peer.addTrack(track, localStream);
           addedNewTrack = true;
         }
@@ -211,9 +231,15 @@ export function useWebRTC({ localStream, selfSocketId }: UseWebRTCOptions) {
     }) {
       const peer = peersRef.current.get(from);
 
-      if (peer) {
-        await setRemoteDescription(peer, answer);
-      }
+      if (!peer) return;
+
+      // Guard against any remaining race: an answer only makes sense
+      // while we're waiting for one. A stray/late answer arriving after
+      // the connection is already stable would otherwise throw
+      // ("wrong state: stable") and abort the handler.
+      if (peer.signalingState !== "have-local-offer") return;
+
+      await setRemoteDescription(peer, answer);
     }
 
     async function handleIceCandidate({
