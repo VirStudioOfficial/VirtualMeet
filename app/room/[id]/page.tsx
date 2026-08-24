@@ -68,6 +68,17 @@ export default function Room({
       setUsername(`Guest-${userId.slice(-4)}`);
     }
 
+    // React Strict Mode (dev only) runs this effect, its cleanup, and
+    // then this effect again on mount. getUserMedia is async, so without
+    // this guard the FIRST call's promise can resolve AFTER the second
+    // call has already started/finished, silently overwriting
+    // streamRef.current with a stale stream object — meanwhile
+    // toggleCamera/toggleMic keep reading whatever streamRef.current
+    // happens to be, which no longer matches what's actually being
+    // rendered or sent to peers. This made toggling look like it did
+    // nothing, or turning the camera back on not work.
+    let cancelled = false;
+
     async function startMedia() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -75,17 +86,29 @@ export default function Room({
           audio: true,
         });
 
+        if (cancelled) {
+          // This effect instance was already cleaned up before the
+          // permission prompt resolved — don't adopt this stream, just
+          // release it immediately so the camera light turns off.
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
         streamRef.current = stream;
         setLocalStream(stream);
       } catch {
-        setMediaError("دسترسی به دوربین یا میکروفون امکان‌پذیر نیست.");
+        if (!cancelled) {
+          setMediaError("دسترسی به دوربین یا میکروفون امکان‌پذیر نیست.");
+        }
       }
     }
 
     startMedia();
 
     return () => {
+      cancelled = true;
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
     };
   }, []);
 
@@ -118,7 +141,7 @@ export default function Room({
   }, [roomUsers, callPeer]);
 
   function toggleCamera() {
-    const track = streamRef.current?.getVideoTracks()[0];
+    const track = localStream?.getVideoTracks()[0];
 
     if (!track) return;
 
@@ -128,7 +151,7 @@ export default function Room({
   }
 
   function toggleMic() {
-    const track = streamRef.current?.getAudioTracks()[0];
+    const track = localStream?.getAudioTracks()[0];
 
     if (!track) return;
 
