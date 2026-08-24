@@ -1,30 +1,58 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 interface MicrophoneControlProps {
-  isMicrophoneOn: boolean;
-  onToggle: () => void;
+  stream?: MediaStream | null;
+  initialMuted?: boolean;
+  onMuteChange?: (muted: boolean) => void;
 }
 
 export default function MicrophoneControl({
-  isMicrophoneOn,
-  onToggle,
+  stream = null,
+  initialMuted = false,
+  onMuteChange,
 }: MicrophoneControlProps) {
+  const [isMuted, setIsMuted] =
+    useState(initialMuted);
+
+  useEffect(() => {
+    setIsMuted(initialMuted);
+  }, [initialMuted]);
+
+  function toggleMicrophone() {
+    const nextMuted = !isMuted;
+
+    if (stream) {
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !nextMuted;
+      });
+    }
+
+    setIsMuted(nextMuted);
+    onMuteChange?.(nextMuted);
+  }
+
   return (
     <button
       type="button"
-      onClick={onToggle}
+      onClick={toggleMicrophone}
       aria-label={
-        isMicrophoneOn
-          ? "Turn microphone off"
-          : "Turn microphone on"
+        isMuted
+          ? "فعال کردن میکروفون"
+          : "خاموش کردن میکروفون"
       }
-      className={`rounded-xl px-5 py-3 font-medium transition ${
-        isMicrophoneOn
-          ? "bg-white text-black hover:bg-gray-200"
-          : "bg-red-600 text-white hover:bg-red-700"
+      className={`flex items-center gap-2 rounded-xl px-5 py-3 font-medium transition ${
+        isMuted
+          ? "bg-red-600 hover:bg-red-700"
+          : "bg-gray-800 hover:bg-gray-700"
       }`}
     >
-      {isMicrophoneOn ? "🎤 Mic On" : "🔇 Mic Off"}
+      <span>{isMuted ? "🔇" : "🎤"}</span>
+
+      <span>
+        {isMuted ? "فعال کردن Mic" : "خاموش کردن Mic"}
+      </span>
     </button>
   );
 }
