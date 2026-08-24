@@ -105,5 +105,17 @@ export function connectSocket(): VirtualMeetSocket {
 }
 
 export function disconnectSocket(): void {
-  socket?.disconnect();
+  if (!socket) return;
+
+  // Fully tear the socket down instead of just calling .disconnect() and
+  // leaving the module-level reference pointing at a dead socket object.
+  // Reusing a disconnected socket (getSocket() would have returned this
+  // same stale instance next time) meant reconnecting could hand out a
+  // new server-side socket.id while old event listeners / in-flight
+  // events from the previous connection were still attached, which is
+  // what caused the phantom duplicate self-tile and calls going to a
+  // socket id the server no longer recognized (so media never arrived).
+  socket.removeAllListeners();
+  socket.disconnect();
+  socket = null;
 }
