@@ -1,30 +1,35 @@
-import { User } from "../types/user";
-
-const USERS_KEY = "virtual-meet-users";
+import { User } from "@/types/user";
 
 interface StoredUser extends User {
   password: string;
 }
+
+const USERS_KEY = "virtual-meet-users";
 
 function getUsers(): StoredUser[] {
   if (typeof window === "undefined") {
     return [];
   }
 
-  const stored = localStorage.getItem(USERS_KEY);
+  const stored =
+    localStorage.getItem(USERS_KEY);
 
   if (!stored) {
     return [];
   }
 
   try {
-    return JSON.parse(stored) as StoredUser[];
+    return JSON.parse(
+      stored
+    ) as StoredUser[];
   } catch {
     return [];
   }
 }
 
-function saveUsers(users: StoredUser[]): void {
+function saveUsers(
+  users: StoredUser[]
+): void {
   if (typeof window === "undefined") {
     return;
   }
@@ -37,22 +42,26 @@ function saveUsers(users: StoredUser[]): void {
 
 export function getAllUsers(): User[] {
   return getUsers().map(
-    ({ password: _password, ...user }) => user
+    ({ password, ...user }) => user
   );
 }
 
 export function getUserById(
   id: string
 ): User | null {
-  const user = getUsers().find(
-    (item) => item.id === id
-  );
+  const user =
+    getUsers().find(
+      (item) => item.id === id
+    );
 
   if (!user) {
     return null;
   }
 
-  const { password: _password, ...safeUser } = user;
+  const {
+    password,
+    ...safeUser
+  } = user;
 
   return safeUser;
 }
@@ -60,49 +69,41 @@ export function getUserById(
 export function getUserByEmail(
   email: string
 ): User | null {
-  const user = getUsers().find(
-    (item) =>
-      item.email.toLowerCase() ===
-      email.toLowerCase()
-  );
+  const user =
+    getUsers().find(
+      (item) =>
+        item.email.toLowerCase() ===
+        email.toLowerCase()
+    );
 
   if (!user) {
     return null;
   }
 
-  const { password: _password, ...safeUser } = user;
+  const {
+    password,
+    ...safeUser
+  } = user;
 
   return safeUser;
 }
 
 export function createUser(
   user: User,
-  password = ""
+  password: string
 ): User {
   const users = getUsers();
 
-  const existing = users.find(
-    (item) =>
-      item.id === user.id ||
-      item.email.toLowerCase() ===
-        user.email.toLowerCase()
-  );
-
-  if (existing) {
-    const {
-      password: _password,
-      ...safeUser
-    } = existing;
-
-    return safeUser;
-  }
-
-  const storedUser: StoredUser = {
+  const newUser: StoredUser = {
     ...user,
+    createdAt:
+      user.createdAt ||
+      new Date().toISOString(),
     password,
   };
 
-  users.push(storedUser);
+  users.push(newUser);
+
   saveUsers(users);
 
   return user;
@@ -114,9 +115,11 @@ export function updateUser(
 ): User | null {
   const users = getUsers();
 
-  const index = users.findIndex(
-    (user) => user.id === id
-  );
+  const index =
+    users.findIndex(
+      (user) =>
+        user.id === id
+    );
 
   if (index === -1) {
     return null;
@@ -130,21 +133,27 @@ export function updateUser(
   saveUsers(users);
 
   const {
-    password: _password,
+    password,
     ...safeUser
   } = users[index];
 
   return safeUser;
 }
 
-export function deleteUser(id: string): boolean {
+export function deleteUser(
+  id: string
+): boolean {
   const users = getUsers();
 
-  const filtered = users.filter(
-    (user) => user.id !== id
-  );
+  const filtered =
+    users.filter(
+      (user) =>
+        user.id !== id
+    );
 
-  if (filtered.length === users.length) {
+  if (
+    filtered.length === users.length
+  ) {
     return false;
   }
 
