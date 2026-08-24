@@ -53,6 +53,7 @@ export default function Room({
 
   const { remotePeers, callPeer, closeAllPeers } = useWebRTC({
     localStream,
+    selfSocketId,
   });
 
   // 1. Grab local camera/mic on mount.
@@ -146,26 +147,55 @@ export default function Room({
     router.push("/");
   }
 
+  // The original camera video track, kept aside so we can restore it
+  // when screen-sharing stops. Screen-share is handled as a track swap
+  // on the SAME localStream object (so every peer connection's existing
+  // sender just gets a replaceTrack via the effect in useWebRTC) rather
+  // than building a new MediaStream, which was losing the camera track
+  // permanently once sharing ended.
+  const cameraVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+
   function handleScreenStreamChange(stream: MediaStream | null) {
     setScreenStream(stream);
-    // Screen share replaces the outgoing video track on every existing
-    // peer connection so remote participants see the shared screen.
-    // (Local RTCPeerConnections are managed inside useWebRTC; simplest
-    // integration point is to swap the local video track directly.)
+
+    const currentStream = streamRef.current;
+
+    if (!currentStream) return;
+
     if (stream) {
       const screenTrack = stream.getVideoTracks()[0];
 
-      if (screenTrack && streamRef.current) {
-        streamRef.current
-          .getVideoTracks()
-          .forEach((t) => streamRef.current?.removeTrack(t));
-        streamRef.current.addTrack(screenTrack);
-        setLocalStream(new MediaStream(streamRef.current.getTracks()));
+      if (!screenTrack) return;
 
-        screenTrack.onended = () => {
-          handleScreenStreamChange(null);
-        };
+      const existingVideoTrack = currentStream.getVideoTracks()[0];
+
+      if (existingVideoTrack) {
+        cameraVideoTrackRef.current = existingVideoTrack;
+        currentStream.removeTrack(existingVideoTrack);
+        // Don't stop it — it's the camera track, we'll need it back.
       }
+
+      currentStream.addTrack(screenTrack);
+      setLocalStream(new MediaStream(currentStream.getTracks()));
+
+      screenTrack.onended = () => {
+        handleScreenStreamChange(null);
+      };
+    } else {
+      currentStream.getVideoTracks().forEach((t) => {
+        currentStream.removeTrack(t);
+        t.stop();
+      });
+
+      const cameraTrack = cameraVideoTrackRef.current;
+
+      if (cameraTrack && cameraTrack.readyState === "live") {
+        currentStream.addTrack(cameraTrack);
+      }
+
+      cameraVideoTrackRef.current = null;
+
+      setLocalStream(new MediaStream(currentStream.getTracks()));
     }
   }
 
